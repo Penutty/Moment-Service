@@ -6,6 +6,7 @@ import (
 	"fmt"
 	_ "github.com/minus5/gofreetds"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -63,7 +64,47 @@ func (m *Moment) leave() error {
 	db := openDbConn()
 	defer db.Close()
 
-	insertMoment := ``
+	insert := `INSERT [moment].[Media] (Type, Message, Media)
+					VALUES (?, ?, ?)`
+	args := []interface{}{m.Type, m.Message, m.Media}
+
+	t, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	res, err := t.Exec(insert, args...)
+	if err != nil {
+		t.Rollback()
+		return err
+	}
+	MediaID := res.LastInsertID()
+
+	insert = `INSERT [moment].[Moments] (SenderID, Location, MediaID, Public, CreateDate)
+					 VALUES (?, ?, ?, ?, ?)`
+	args = []interface{}{m.SenderID, m.Location, MediaID, m.Public, m.CreateDate}
+
+	res, err := t.Exec(insert, args...)
+	if err != nil {
+		t.Rollback()
+		return err
+	}
+	MomentID := res.LastInsertId()
+
+	if m.Public != 1 {
+		insert = `INSERT [moment].[Leaves] (MomentID, RecipientID, Found) 
+				  VALUES `
+
+		values, args := getSetValues(MomentID, m.RecipientIDs)	
+		insert = insert + values
+
+		if _, err = t.Exec(insert, args...); err != nil {
+			t.Rollback()
+			return err
+		}
+	}
+
+	t.Commit()
 
 	return nil
 }
@@ -91,27 +132,53 @@ func (m *Moment) share() error {
 	db := openDbConn()
 	defer db.Close()
 
-	updateLeave := `UPDATE [moment].[Leaves]
-			  		 SET Share = 1
-			  	  	 WHERE RecipientID = ?
-			  			   AND MomentID = ?`
-	leaveArgs := []interface{}{m.RecipientID, m.ID}
 
-	insertShare := `INSERT INTO [moment].[Shares] (ShareID, RecipientID)
-					VALUES (`
+	update := `UPDATE [moment].[Leaves]
+   	  		   SET Share = 1
+			   WHERE RecipientID = ?
+			  	     AND MomentID = ?`
+	args := []interface{}{m.RecipientID, m.ID}
 
 	t, err := db.Begin()
 	if err != nil {
 		return err
 	}
 
-	if _, err := t.Exec(query, args...); err != nil {
+	if _, err := t.Exec(update, args...); err != nil {
 		t.Rollback()
 		return error
 	}
 
-	query = `INSERT INTO`
+	insert := `INSERT INTO [moment].[Shares] (LeaveID, RecipientID)
+			   VALUES `
+
+	values, args := getSetValues(FK, m.RecipientIDs)
+	insert = insert + values
+
+
+	
+	if _, err := t.Exec(insert, args...); err != nil {
+		t.Rollback()
+		return err
+	}	
+	
+	t.Commit()
+
+	return nil
 }
+
+// getSetValues accepts a list of recipients and returns a insert value for each recipient.
+func getRecipientValues(FK interface{}, RecipientIDs []string) (values string, args []interface{}) {
+	valueSet := new([]string)
+	for _, v := range RecipientIDs {
+		values = append(values, "(?, ?, ?)")
+		args = append(args, interface{}{FK, v, 0})
+	}
+	values = strings.Join(valueSet, ", ")
+
+	return values, args
+}
+
 
 //
 // The functions below are utility functions and are only used in this package.
