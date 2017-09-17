@@ -38,28 +38,171 @@ type Moment struct {
 	RecipientIDs []string
 }
 
-// SharedMoment is a moment that another user has found and shared with other users.
-func Share(m *Moment) error {
 
+type Moment struct {
+	Location
+	Content
+	ID 		   string
+	CreateDate time.Time
 }
 
-// FoundMoment is a moment that a user has found that was left by another user.
-func Find(m *Moment) error {
-
+type PublicMoment struct {
+	Moment 
+	SenderID string
 }
 
-// LeftMoment is a moment that a user created and is leaving for others.
-func Leave(m *Moment) error {
-
+type SharedMoment struct {
+	Moment
+	SenderID string
 }
 
-// Poll is the grouping of datatypes needed to check for available lost moments.
-func Poll(m *Moment) error {
-
+type FoundMoment struct {
+	Moment
+	SenderID string
+	FindDate time.Time
 }
 
-// LostMoment is a moment that has not been found yet.
+type LeftMoment struct {
+	Moment
+	RecipientIDs []string
+}
 
+type LostMoment struct {
+	Location
+	ID string
+}
+
+// Search for Public moments at certain location.
+// Location = location
+// returns...
+// MomentID
+// SenderID
+// Location
+// Content 
+// CreateDate
+func searchPublic(l Location) ([]PublicMoment, error) {
+
+	return nil
+}
+
+// Search for another user's shared moments.
+// RecipientID = them
+// returns...
+// MomentID
+// SenderID
+// Location
+// Content
+// CreateDate
+func searchShared(u string) ([]SharedMoment, error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT mo.ID, mo.SenderID, mo.Location, mo.CreateDate, m.Type, m.Message, m.Media
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m
+			    ON mo.MediaID = m.ID
+			  JOIN [moment].[Leaves] l
+			    ON mo.ID = l.MomentID
+			  JOIN [moment].[Shares] s
+			    ON l.ID = s.LeaveID
+			  WHERE s.RecipientID = ?`
+
+	args := []interface{}{u}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sM = new([]SharedMoment)
+	for rows.Next() {
+		m := new(SharedMoment)
+		if err = rows.Scan(&m.ID, &m.SenderID, &m.Location, &m.CreateDate, &m.Type, &m.Message, &m.Media); err != nil {
+			return nil, err
+		}
+		sM = append(sM, m)
+	}
+	if err = rows.Err; err != nil {
+		return nil, err
+	}
+
+	return sM,nil
+}
+
+// Search for my found moments.
+// RecipientID = me
+// Found = 1
+// returns...
+// MomentID
+// SenderID
+// Location
+// Content
+// CreatDate
+// FindDate
+func searchFound(u string) ([]FoundMoment, error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT mo.ID, mo.SenderID, mo.Location, mo.CreateDate, l.FindDate m.Type, m.Message, m.Media
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m
+			    ON mo.MediaID = m.ID
+			  JOIN [moment].[Leaves] l
+			    ON mo.ID = l.MomentID
+			  WHERE l.RecipientID = ?
+			  		AND l.Found = 1`
+	args := []interface{}{u}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	fM := new([]FoundMoment)
+	for rows.Next() {
+		m := new(FoundMoment)
+		if err = rows.Scan(&m.ID, &m.SenderID, &m.Location, &m.CreateDate, &m.FindDate, &m.Type, &m.Message, &m.Media); err != nil {
+			return nil, err
+		}
+		fM = append(fM, m)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return fM, nil
+}
+
+// Search for my left moments.
+// SenderID = me
+// returns... 
+// MomentID
+// RecipientIDs
+// Location
+// Content
+// CreateDate
+func searchLeft(u string) ([]LeftMoment, error) {
+
+	return nil
+}
+
+// Search for my lost moments.
+// RecipientID = me
+// Found = 0
+// returns...
+// MomentID
+// Location
+func searchLost(u string) ([]LostMoment, error) {
+
+	return nil
+}
+
+// Moment.leave creates a new moment in Moment-Db. 
+// The moment content; type, message, and Media are stored.
+// The moment is stored.
+// If the moment is not public, the leaves are stored.
 func (m *Moment) leave() error {
 	db := openDbConn()
 	defer db.Close()
@@ -109,6 +252,8 @@ func (m *Moment) leave() error {
 	return nil
 }
 
+// Moment.find updates the corresponding moment resource in the Moment-Db.
+// The moment's found flag and found date are updated.
 func (m *Moment) find() error {
 	db := openDbConn()
 	defer db.Close()
@@ -128,6 +273,9 @@ func (m *Moment) find() error {
 	return nil
 }
 
+// Moment.share updates the corresponding leave resource in the Moment-Db.
+// The leaves' share flag is set to 1.
+// A share is created for each recipient of share in the Shares table. 
 func (m *Moment) share() error {
 	db := openDbConn()
 	defer db.Close()
