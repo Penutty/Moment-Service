@@ -1,24 +1,30 @@
 package moment
 
 import (
+	"errors"
 	"fmt"
 	// "github.com/stretchr/testify/assert"
+	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 	"testutil"
 	"time"
 )
 
 const (
-	User_1 = "James"
-	User_2 = "Sadie"
-	User_3 = "Frank"
-
-	Latitude_1  = 43.043978
-	Longitude_1 = -87.899151
+	Latitude_1  = 80
+	Longitude_1 = -80
 )
 
+var users []string
+
 func TestMain(m *testing.M) {
+	users = make([]string, 500)
+	for i, _ := range users {
+		users[i] = "User_" + strconv.Itoa(i)
+	}
+
 	call := m.Run()
 
 	var err error
@@ -35,106 +41,91 @@ func TestMain(m *testing.M) {
 
 func Test_Moment_leave(t *testing.T) {
 
+	generateLeaveData := func() (m *Moment) {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		u := users[r.Intn(len(users))]
+		latitude := float32(r.Intn(360) - 180)
+		longitude := float32(r.Intn(180) - 90)
+
+		t := uint8(r.Intn(4))
+		p := r.Intn(2)
+
+		m = new(Moment)
+		m.SenderID = u
+		m.CreateDate = time.Now().UTC()
+		m.Latitude = latitude
+		m.Longitude = longitude
+		m.Type = t
+		m.Message = "message"
+		if m.Type == Image || m.Type == Video {
+			m.MediaDir = "D:/dir/"
+		} else {
+			m.MediaDir = ""
+		}
+		m.Public = (p == 1)
+		m.Shared = false
+		if !m.Public {
+			recipientIDs := make([]string, r.Intn(50)+1)
+			for i, _ := range recipientIDs {
+				recipientIDs[i] = "User_" + strconv.Itoa(i)
+			}
+			m.RecipientIDs = append(m.RecipientIDs, recipientIDs...)
+		} else {
+			m.RecipientIDs = nil
+		}
+
+		return
+	}
+
+	for i := 0; i < 100; i++ {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			t.Parallel()
+
+			m := generateLeaveData()
+
+			if err := m.leave(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
+}
+
+func Test_searchLost(t *testing.T) {
 	t.Run("1", func(t *testing.T) {
-		m := new(Moment)
-		m.SenderID = User_1
-		m.CreateDate = time.Now().UTC()
-		m.Latitude = Latitude_1
-		m.Longitude = Longitude_1
-		m.Type = DNE
-		m.Message = "Hello World"
-		m.MediaDir = ""
-		m.Public = true
-		m.Shared = false
-		m.RecipientIDs = nil
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		u := users[r.Intn(len(users))]
 
-		if err := m.leave(); err != nil {
-			t.Error(err)
-		}
-
-	})
-
-	t.Run("2", func(t *testing.T) {
-		m := new(Moment)
-		m.SenderID = User_1
-		m.CreateDate = time.Now().UTC()
-		m.Latitude = Latitude_1
-		m.Longitude = Longitude_1
-		m.Type = Image
-		m.Message = "Hello World"
-		m.MediaDir = "image location"
-		m.Public = true
-		m.Shared = false
-		m.RecipientIDs = nil
-
-		if err := m.leave(); err != nil {
-			t.Error(err)
-		}
-
-	})
-
-	t.Run("3", func(t *testing.T) {
-		m := new(Moment)
-		m.SenderID = User_1
-		m.CreateDate = time.Now().UTC()
-		m.Latitude = Latitude_1
-		m.Longitude = Longitude_1
-		m.Type = Video
-		m.Message = "Hello World"
-		m.MediaDir = "video location"
-		m.Public = true
-		m.Shared = false
-		m.RecipientIDs = nil
-
-		if err := m.leave(); err != nil {
-			t.Error(err)
-		}
-
-	})
-
-	t.Run("4", func(t *testing.T) {
-		m := new(Moment)
-		m.SenderID = User_1
-		m.CreateDate = time.Now().UTC()
-		m.Latitude = Latitude_1
-		m.Longitude = Longitude_1
-		m.Type = DNE
-		m.Message = "Hello World"
-		m.MediaDir = ""
-		m.Public = false
-		m.Shared = false
-		m.RecipientIDs = []string{User_2, User_3}
-
-		if err := m.leave(); err != nil {
-			t.Error(err)
-		}
-
-	})
-
-	t.Run("5", func(t *testing.T) {
-		m := new(Moment)
-		m.SenderID = User_1
-		m.CreateDate = time.Now().UTC()
-		m.Latitude = Latitude_1
-		m.Longitude = Longitude_1
-		m.Type = Image
-		m.Message = "Hello World"
-		m.MediaDir = "image location"
-		m.Public = true
-		m.Shared = false
-		m.RecipientIDs = nil
-
-		if err := m.leave(); err != nil {
+		_, err := searchLost(u)
+		if err != nil {
 			t.Error(err)
 		}
 	})
 }
 
 func Test_find(t *testing.T) {
+
+	var ms []Moment
+	var r *rand.Rand
+	var u string
+	for {
+		r = rand.New(rand.NewSource(time.Now().UnixNano()))
+		u = users[r.Intn(len(users))]
+
+		msnew, err := searchLost(u)
+		if err != nil {
+			t.Error(err)
+		}
+		if len(msnew) > 0 {
+			ms = append(ms, msnew...)
+			break
+		}
+	}
+
+	m := ms[r.Intn(len(ms))]
+	m.RecipientID = u
+
 	t.Run("1", func(t *testing.T) {
-		m := new(Moment)
-		m.ID = 1
-		m.RecipientIDs = []string{User_2}
 
 		if err := m.find(); err != nil {
 			t.Error(err)
@@ -142,12 +133,47 @@ func Test_find(t *testing.T) {
 	})
 }
 
-func Test_share(t *testing.T) {
+func Test_searchFound(t *testing.T) {
+	_, u, err := foundLeave()
+	if err != nil {
+		t.Error(err)
+	}
+
 	t.Run("1", func(t *testing.T) {
-		m := new(Moment)
-		m.RecipientID = User_2
-		m.ID = 4
-		m.RecipientIDs = []string{User_1, User_3}
+
+		_, err := searchFound(u)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+}
+
+func Test_share(t *testing.T) {
+	generateLeaveData := func() (m *Moment) {
+		mID, u, err := foundLeave()
+		if err != nil {
+			t.Error(err)
+		}
+		t.Logf("mID = %v\n", mID)
+		t.Logf("u = %v\n", u)
+
+		m = new(Moment)
+		m.RecipientID = u
+		m.ID = mID
+
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		recipientIDs := make([]string, r.Intn(50)+1)
+		for i, _ := range recipientIDs {
+			recipientIDs[i] = "User_" + strconv.Itoa(i)
+		}
+		m.RecipientIDs = recipientIDs
+
+		return
+	}
+
+	t.Run("1", func(t *testing.T) {
+		m := generateLeaveData()
 
 		if err := m.share(); err != nil {
 			t.Error(err)
@@ -156,63 +182,14 @@ func Test_share(t *testing.T) {
 }
 
 func Test_searchLeft(t *testing.T) {
+	sID, err := senderID()
+	if err != nil {
+		t.Log(err)
+	}
+
 	t.Run("1", func(t *testing.T) {
 
-		_, err := searchLeft(User_1)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("2", func(t *testing.T) {
-
-		_, err := searchLeft(User_2)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-}
-
-func Test_searchLost(t *testing.T) {
-	t.Run("1", func(t *testing.T) {
-		_, err := searchLost(User_1)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("2", func(t *testing.T) {
-		_, err := searchLost(User_2)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("3", func(t *testing.T) {
-		_, err := searchLost(User_3)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-}
-
-func Test_searchFound(t *testing.T) {
-	t.Run("1", func(t *testing.T) {
-		_, err := searchFound(User_1)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("2", func(t *testing.T) {
-		_, err := searchFound(User_2)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("3", func(t *testing.T) {
-		_, err := searchFound(User_3)
+		_, err := searchLeft(sID)
 		if err != nil {
 			t.Error(err)
 		}
@@ -220,22 +197,13 @@ func Test_searchFound(t *testing.T) {
 }
 
 func Test_searchShared(t *testing.T) {
+	u, err := sharedLeave()
+	if err != nil {
+		t.Error(err)
+	}
+
 	t.Run("1", func(t *testing.T) {
-		_, err := searchShared(User_1)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("2", func(t *testing.T) {
-		_, err := searchShared(User_2)
-		if err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("3", func(t *testing.T) {
-		_, err := searchShared(User_3)
+		_, err := searchShared(u)
 		if err != nil {
 			t.Error(err)
 		}
@@ -243,36 +211,140 @@ func Test_searchShared(t *testing.T) {
 }
 
 func Test_searchPublic(t *testing.T) {
+	l, err := publicMoment()
+	if err != nil {
+		t.Error(err)
+	}
+
 	t.Run("1", func(t *testing.T) {
-		l := Location{
-			Latitude:  Latitude_1,
-			Longitude: Longitude_1,
-		}
-		_, err := searchPublic(l)
-		if err != nil {
-			t.Error(err)
-		}
-	})
 
-	t.Run("2", func(t *testing.T) {
-		l := Location{
-			Latitude:  Latitude_1,
-			Longitude: Longitude_1,
-		}
 		_, err := searchPublic(l)
 		if err != nil {
 			t.Error(err)
 		}
 	})
+}
 
-	t.Run("3", func(t *testing.T) {
-		l := Location{
-			Latitude:  Latitude_1,
-			Longitude: Longitude_1,
+func publicMoment() (l Location, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT Latitude, Longitude
+			  FROM [moment].[Moments]
+			  WHERE [Public] = 1`
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var idSlice []Location
+	var lat, long float32
+	for rows.Next() {
+		if err = rows.Scan(&lat, &long); err != nil {
+			return
 		}
-		_, err := searchPublic(l)
-		if err != nil {
-			t.Error(err)
+
+		idSlice = append(idSlice, Location{lat, long})
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	l = idSlice[rand.Intn(len(idSlice))]
+
+	return
+}
+
+// UserWithFound selects a user that has a found moment.
+func foundLeave() (mID int, u string, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT ID, MomentID, RecipientID
+			  FROM [moment].[Leaves]
+			  WHERE Found = 1
+			  		AND Shared = 0`
+	rows, err := db.Query(query)
+	if err != nil {
+		return 0, "", err
+	}
+	defer rows.Close()
+
+	var lID int
+	m := make(map[int][]interface{})
+	keys := make([]int, 0)
+	for rows.Next() {
+		if err = rows.Scan(&lID, &mID, &u); err != nil {
+			return 0, "", err
 		}
-	})
+		m[lID] = []interface{}{mID, u}
+		keys = append(keys, lID)
+	}
+	rand.Seed(time.Now().UnixNano())
+	key := keys[rand.Intn(len(keys))]
+	iSlice, ok := m[key]
+	if !ok {
+		return 0, "", errors.New("Invalid map key.")
+	}
+	u = iSlice[1].(string)
+	mID = iSlice[0].(int)
+
+	return mID, u, nil
+}
+
+func sharedLeave() (u string, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT RecipientID
+			  FROM [moment].[Leaves]
+			  WHERE shared = 1`
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var rs []string
+	var r string
+	for rows.Next() {
+		if err = rows.Scan(&r); err != nil {
+			return
+		}
+		rs = append(rs, r)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	u = rs[rand.Intn(len(rs))]
+	return
+}
+
+func senderID() (senderID string, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT SenderID
+			  FROM [moment].[Moments]`
+	rows, err := db.Query(query)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var senders []string
+	for rows.Next() {
+		if err = rows.Scan(&senderID); err != nil {
+			return "", err
+		}
+		senders = append(senders, senderID)
+	}
+	rand.Seed(time.Now().UnixNano())
+	senderID = senders[rand.Intn(len(senders))]
+
+	return senderID, nil
 }

@@ -3,6 +3,7 @@ package moment
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	_ "github.com/minus5/gofreetds"
 	"log"
 	"strings"
@@ -26,6 +27,10 @@ type Location struct {
 	Longitude float32
 }
 
+func (l *Location) String() string {
+	return fmt.Sprintf("Latitude: %v\nLongitude: %v\n", l.Latitude, l.Longitude)
+}
+
 // Content is a set resources that belong to a Moment.
 // Content may be a message, image, and/or a video.
 type Content struct {
@@ -34,10 +39,14 @@ type Content struct {
 	MediaDir string
 }
 
+func (c *Content) String() string {
+	return fmt.Sprintf("Type: %v\nMessage: %v\nMediaDir: %v\n", c.Type, c.Message, c.MediaDir)
+}
+
 // Moment is the main resource of this package.
 // It is a grouping of the Content and Location structs.
 type Moment struct {
-	ID           int64
+	ID           int
 	SenderID     string
 	RecipientID  string
 	RecipientIDs []string
@@ -48,6 +57,31 @@ type Moment struct {
 	Shared     bool
 	Public     bool
 	CreateDate time.Time
+}
+
+func (m *Moment) String() string {
+	return fmt.Sprintf(`ID: %v
+						SenderID: %v
+						RecipientID: %v
+						RecipientIDs: %v
+						Location: %v
+						Content: %v
+						Found: %v
+						FindDate: %v
+						Shared: %v
+						Public: %v
+						CreateDate: %v`,
+		m.ID,
+		m.SenderID,
+		m.RecipientID,
+		m.RecipientIDs,
+		m.Location,
+		m.Content,
+		m.Found,
+		m.FindDate,
+		m.Shared,
+		m.Public,
+		m.CreateDate)
 }
 
 // Search for Public moments at certain location.
@@ -121,9 +155,8 @@ func searchShared(u string) ([]Moment, error) {
 			    ON mo.MediaID = m.ID
 			  JOIN [moment].[Leaves] l
 			    ON mo.ID = l.MomentID
-			  JOIN [moment].[Shares] s
-			    ON l.ID = s.LeaveID
-			  WHERE s.RecipientID = ?`
+			  WHERE l.RecipientID = ?
+			  		AND l.Shared = 1`
 
 	rows, err := db.Query(query, u)
 	if err != nil {
@@ -410,7 +443,7 @@ func (m *Moment) find() error {
 					WHERE RecipientID = ?
 						  AND MomentID = ?`
 
-	updateArgs := []interface{}{time.Now().UTC(), m.RecipientIDs[0], m.ID}
+	updateArgs := []interface{}{time.Now().UTC(), m.RecipientID, m.ID}
 
 	if _, err := db.Exec(updateLeave, updateArgs...); err != nil {
 		return err
