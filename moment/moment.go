@@ -11,6 +11,8 @@ import (
 )
 
 const (
+	Datetime2 = "2006-01-02 15:04:05"
+
 	DNE = iota
 	Image
 	Video
@@ -28,9 +30,9 @@ type Location struct {
 // Content is a set resources that belong to a Moment.
 // Content may be a message, image, and/or a video.
 type Content struct {
-	Type          uint8
-	Message       string
-	MediaLocation string
+	Type     uint8
+	Message  string
+	MediaDir string
 }
 
 // Moment is the main resource of this package.
@@ -47,110 +49,181 @@ type Moment struct {
 	CreateDate time.Time
 }
 
-// // Search for Public moments at certain location.
-// func searchPublic(l Location) (*[]PublicMoment, error) {
-// 	db := openDbConn()
-// 	defer db.Close()
+// Search for Public moments at certain location.
+func searchPublic(l Location) ([]Moment, error) {
+	db := openDbConn()
+	defer db.Close()
 
-// 	query := `SELECT mo.ID,
-// 					 mo.SenderID,
-// 					 mo.Location,
-// 					 m.Type,
-// 					 m.Message,
-// 					 m.MediaLocation,
-// 					 mo.CreateDate
-// 			  FROM [moment].[Moments] mo
-// 			  JOIN [moment].[MediaLocation] m
-// 			    ON mo.MediaLocationID = m.ID
-// 			  WHERE mo.Location = ?`
-// 	args := []interface{}{l}
+	query := `SELECT mo.ID,
+					 mo.SenderID,
+					 mo.Latitude, 
+					 mo.Longitude,
+					 m.Type,
+					 m.Message,
+					 m.MediaDir,
+					 mo.CreateDate
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m
+			    ON mo.MediaID = m.ID
+			  WHERE mo.Latitude = ?
+			  		AND mo.Longitude = ?`
 
-// 	rows, err := db.Query(query, args...)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
+	rows, err := db.Query(query, l.Latitude, l.Longitude)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-// 	m := new(PublicMoment)
-// 	mS := new([]PublicMoment)
-// 	mSFields := []interface{}{&m.ID, &m.SenderID, &m.Location, &m.Type, &m.Message, &m.MediaLocation, &m.CreateDate}
-// 	if err = rowsToStructSlice(rows, mS, mSFields); err != nil {
-// 		return nil, err
-// 	}
+	m := new(Moment)
+	ms := make([]Moment, 0)
+	var createDate string
+	fieldAddrs := []interface{}{
+		&m.ID,
+		&m.SenderID,
+		&m.Latitude,
+		&m.Longitude,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+		&createDate,
+	}
 
-// 	return mS, nil
-// }
+	for rows.Next() {
+		if err = rows.Scan(fieldAddrs...); err != nil {
+			return nil, err
+		}
+		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 
-// // Search for another user's shared moments.
-// func searchShared(u string) (*[]SharedMoment, error) {
-// 	db := openDbConn()
-// 	defer db.Close()
+	return ms, nil
+}
 
-// 	query := `SELECT mo.ID, mo.SenderID, mo.Location, mo.CreateDate, m.Type, m.Message, m.MediaLocation
-// 			  FROM [moment].[Moments] mo
-// 			  JOIN [moment].[MediaLocation] m
-// 			    ON mo.MediaLocationID = m.ID
-// 			  JOIN [moment].[Leaves] l
-// 			    ON mo.ID = l.MomentID
-// 			  JOIN [moment].[Shares] s
-// 			    ON l.ID = s.LeaveID
-// 			  WHERE s.RecipientID = ?`
+// Search for another user's shared moments.
+func searchShared(u string) ([]Moment, error) {
+	db := openDbConn()
+	defer db.Close()
 
-// 	args := []interface{}{u}
+	query := `SELECT mo.ID, 
+					 mo.SenderID, 
+					 mo.Latitude,
+					 mo.Longitude, 
+					 mo.CreateDate, 
+					 m.Type, 
+					 m.Message, 
+					 m.MediaDir
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m
+			    ON mo.MediaID = m.ID
+			  JOIN [moment].[Leaves] l
+			    ON mo.ID = l.MomentID
+			  JOIN [moment].[Shares] s
+			    ON l.ID = s.LeaveID
+			  WHERE s.RecipientID = ?`
 
-// 	rows, err := db.Query(query, args...)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
+	rows, err := db.Query(query, u)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-// 	m := new(SharedMoment)
-// 	mS := new([]SharedMoment)
-// 	mSFields := []interface{}{&m.ID, &m.SenderID, &m.Location, &m.CreateDate, &m.Type, &m.Message, &m.MediaLocation}
-// 	if err = rowsToStructSlice(rows, mS, mSFields); err != nil {
-// 		return nil, err
-// 	}
+	m := new(Moment)
+	ms := make([]Moment, 0, 100)
+	var createDate string
+	fieldAddrs := []interface{}{
+		&m.ID,
+		&m.SenderID,
+		&m.Location,
+		&createDate,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+	}
 
-// 	return mS, nil
-// }
+	for rows.Next() {
+		if err = rows.Scan(fieldAddrs...); err != nil {
+			return nil, err
+		}
+		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		if err != nil {
+			return nil, err
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 
-// // Search for my found moments.
-// func searchFound(u string) (*[]FoundMoment, error) {
-// 	db := openDbConn()
-// 	defer db.Close()
+	return ms, nil
+}
 
-// 	query := `SELECT mo.ID,
-// 					 mo.SenderID,
-// 					 mo.Location,
-// 					 mo.CreateDate,
-// 					 l.FindDate,
-// 					 m.Type,
-// 					 m.Message,
-// 					 m.MediaLocation
-// 			  FROM [moment].[Moments] mo
-// 			  JOIN [moment].[MediaLocation] m
-// 			    ON mo.MediaLocationID = m.ID
-// 			  JOIN [moment].[Leaves] l
-// 			    ON mo.ID = l.MomentID
-// 			  WHERE l.RecipientID = ?
-// 			  		AND l.Found = 1`
-// 	args := []interface{}{u}
+// Search for my found moments.
+func searchFound(u string) ([]Moment, error) {
+	db := openDbConn()
+	defer db.Close()
 
-// 	rows, err := db.Query(query, args...)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
+	query := `SELECT mo.ID,
+					 mo.SenderID,
+					 mo.Latitude,
+					 mo.Longitude,
+					 mo.CreateDate,
+					 l.FindDate,
+					 m.Type,
+					 m.Message,
+					 m.MediaDir
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m
+			    ON mo.MediaID = m.ID
+			  JOIN [moment].[Leaves] l
+			    ON mo.ID = l.MomentID
+			  WHERE l.RecipientID = ?
+			  		AND l.Found = 1`
 
-// 	m := new(FoundMoment)
-// 	mS := new([]FoundMoment)
-// 	mSFields := []interface{}{&m.ID, &m.SenderID, &m.Location, &m.CreateDate, &m.FindDate, &m.Type, &m.Message, &m.MediaLocation}
-// 	if err = rowsToStructSlice(rows, mS, mSFields); err != nil {
-// 		return nil, err
-// 	}
+	rows, err := db.Query(query, u)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-// 	return mS, nil
-// }
+	m := new(Moment)
+	ms := make([]Moment, 0)
+	var createDate string
+	var findDate string
+	fieldAddrs := []interface{}{
+		&m.ID,
+		&m.SenderID,
+		&m.Latitude,
+		&m.Longitude,
+		&createDate,
+		&findDate,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+	}
+	for rows.Next() {
+		if err = rows.Scan(fieldAddrs...); err != nil {
+			return nil, err
+		}
+		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		if err != nil {
+			return nil, err
+		}
+
+		m.FindDate, err = time.Parse(Datetime2, findDate)
+		if err != nil {
+			return nil, err
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ms, nil
+}
 
 // // Search for my left moments.
 func searchLeft(u string) ([]Moment, error) {
@@ -163,7 +236,7 @@ func searchLeft(u string) ([]Moment, error) {
 					 mo.CreateDate,
 					 m.Type,
 					 m.Message,
-					 m.MediaLocation
+					 m.MediaDir
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
 			    ON mo.MediaID = m.ID
@@ -177,15 +250,24 @@ func searchLeft(u string) ([]Moment, error) {
 
 	m := new(Moment)
 	ms := make([]Moment, 0)
-	var createDateString string
+	var createDate string
+	fieldAddrs := []interface{}{
+		&m.ID,
+		&m.Latitude,
+		&m.Longitude,
+		&createDate,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+	}
 
 	for rows.Next() {
 
-		if err = rows.Scan(&m.ID, &m.Latitude, &m.Longitude, &createDateString, &m.Type, &m.Message, &m.MediaLocation); err != nil {
+		if err = rows.Scan(fieldAddrs...); err != nil {
 			return nil, err
 		}
 
-		m.CreateDate, err = time.Parse("2006-01-02 15:04:05", createDateString)
+		m.CreateDate, err = time.Parse("2006-01-02 15:04:05", createDate)
 		if err != nil {
 			return nil, err
 		}
@@ -221,45 +303,49 @@ func searchLeft(u string) ([]Moment, error) {
 	return ms, nil
 }
 
-// // Search for my lost moments.
-// func searchLost(u string) (*[]LostMoment, error) {
-// 	db := openDbConn()
-// 	defer db.Close()
+// Search for my lost moments.
+func searchLost(u string) ([]Moment, error) {
+	db := openDbConn()
+	defer db.Close()
 
-// 	query := `SELECT mo.ID, mo.Location
-// 			  FROM [moment].[Moments] mo
-// 			  JOIN [moment].[Leaves] l
-// 			    ON mo.ID = l.MomentID
-// 			  WHERE l.RecipientID = ?`
-// 	args := []interface{}{u}
+	query := `SELECT mo.ID, mo.Latitude, mo.Longitude
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Leaves] l
+			    ON mo.ID = l.MomentID
+			  WHERE l.RecipientID = ?`
 
-// 	rows, err := db.Query(query, args...)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
+	rows, err := db.Query(query, u)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-// 	m := new(LostMoment)
-// 	mS := new([]LostMoment)
-// 	mSFields := []interface{}{&m.ID, &m.Location}
-// 	if err = rowsToStructSlice(rows, mS, mSFields); err != nil {
-// 		return nil, err
-// 	}
+	m := new(Moment)
+	ms := make([]Moment, 0)
+	for rows.Next() {
+		if err = rows.Scan(&m.ID, &m.Latitude, &m.Longitude); err != nil {
+			return nil, err
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 
-// 	return mS, nil
-// }
+	return ms, nil
+}
 
 // Moment.leave creates a new moment in Moment-Db.
-// The moment content; type, message, and MediaLocation are stored.
+// The moment content; type, message, and MediaDir are stored.
 // The moment is stored.
 // If the moment is not public, the leaves are stored.
 func (m *Moment) leave() error {
 	db := openDbConn()
 	defer db.Close()
 
-	insert := `INSERT [moment].[Media] (Type, Message, MediaLocation)
+	insert := `INSERT [moment].[Media] (Type, Message, MediaDir)
 					VALUES (?, ?, ?)`
-	args := []interface{}{m.Type, m.Message, m.MediaLocation}
+	args := []interface{}{m.Type, m.Message, m.MediaDir}
 
 	t, err := db.Begin()
 	if err != nil {

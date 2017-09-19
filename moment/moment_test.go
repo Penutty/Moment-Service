@@ -12,6 +12,9 @@ const (
 	User_1 = "James"
 	User_2 = "Sadie"
 	User_3 = "Frank"
+
+	Latitude_1  = 43.043978
+	Longitude_1 = -87.899151
 )
 
 func Test_Moment_leave(t *testing.T) {
@@ -20,11 +23,11 @@ func Test_Moment_leave(t *testing.T) {
 		m := new(Moment)
 		m.SenderID = User_1
 		m.CreateDate = time.Now().UTC()
-		m.Latitude = 43.043978
-		m.Longitude = -87.899151
+		m.Latitude = Latitude_1
+		m.Longitude = Longitude_1
 		m.Type = DNE
 		m.Message = "Hello World"
-		m.MediaLocation = ""
+		m.MediaDir = ""
 		m.Public = true
 		m.RecipientIDs = nil
 
@@ -39,11 +42,11 @@ func Test_Moment_leave(t *testing.T) {
 		m := new(Moment)
 		m.SenderID = User_1
 		m.CreateDate = time.Now().UTC()
-		m.Latitude = 43.043978
-		m.Longitude = -87.899151
+		m.Latitude = Latitude_1
+		m.Longitude = Longitude_1
 		m.Type = Image
 		m.Message = "Hello World"
-		m.MediaLocation = "image location"
+		m.MediaDir = "image location"
 		m.Public = true
 		m.RecipientIDs = nil
 
@@ -57,11 +60,11 @@ func Test_Moment_leave(t *testing.T) {
 		m := new(Moment)
 		m.SenderID = User_1
 		m.CreateDate = time.Now().UTC()
-		m.Latitude = 43.043978
-		m.Longitude = -87.899151
+		m.Latitude = Latitude_1
+		m.Longitude = Longitude_1
 		m.Type = Video
 		m.Message = "Hello World"
-		m.MediaLocation = "video location"
+		m.MediaDir = "video location"
 		m.Public = true
 		m.RecipientIDs = nil
 
@@ -75,11 +78,11 @@ func Test_Moment_leave(t *testing.T) {
 		m := new(Moment)
 		m.SenderID = User_1
 		m.CreateDate = time.Now().UTC()
-		m.Latitude = 43.043978
-		m.Longitude = -87.899151
+		m.Latitude = Latitude_1
+		m.Longitude = Longitude_1
 		m.Type = DNE
 		m.Message = "Hello World"
-		m.MediaLocation = ""
+		m.MediaDir = ""
 		m.Public = false
 		m.RecipientIDs = []string{User_2, User_3}
 
@@ -93,11 +96,11 @@ func Test_Moment_leave(t *testing.T) {
 		m := new(Moment)
 		m.SenderID = User_1
 		m.CreateDate = time.Now().UTC()
-		m.Latitude = 43.043978
-		m.Longitude = -87.899151
+		m.Latitude = Latitude_1
+		m.Longitude = Longitude_1
 		m.Type = Image
 		m.Message = "Hello World"
-		m.MediaLocation = "image location"
+		m.MediaDir = "image location"
 		m.Public = true
 		m.RecipientIDs = nil
 
@@ -119,6 +122,110 @@ func Test_searchLeft(t *testing.T) {
 	t.Run("2", func(t *testing.T) {
 
 		_, err := searchLeft(User_2)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_searchLost(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		_, err := searchLost(User_1)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("2", func(t *testing.T) {
+		_, err := searchLost(User_2)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("3", func(t *testing.T) {
+		_, err := searchLost(User_3)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_searchFound(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		_, err := searchFound(User_1)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("2", func(t *testing.T) {
+		_, err := searchFound(User_2)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("3", func(t *testing.T) {
+		_, err := searchFound(User_3)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_searchShared(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		_, err := searchShared(User_1)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("2", func(t *testing.T) {
+		_, err := searchShared(User_2)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("3", func(t *testing.T) {
+		_, err := searchShared(User_3)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_searchPublic(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		l := Location{
+			Latitude:  Latitude_1,
+			Longitude: Longitude_1,
+		}
+		_, err := searchPublic(l)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("2", func(t *testing.T) {
+		l := Location{
+			Latitude:  Latitude_1,
+			Longitude: Longitude_1,
+		}
+		_, err := searchPublic(l)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("3", func(t *testing.T) {
+		l := Location{
+			Latitude:  Latitude_1,
+			Longitude: Longitude_1,
+		}
+		_, err := searchPublic(l)
 		if err != nil {
 			t.Error(err)
 		}
