@@ -1,10 +1,11 @@
 package moment
 
 import (
-	// "fmt"
+	"fmt"
 	// "github.com/stretchr/testify/assert"
+	"os"
 	"testing"
-	// "testutil"
+	"testutil"
 	"time"
 )
 
@@ -16,6 +17,21 @@ const (
 	Latitude_1  = 43.043978
 	Longitude_1 = -87.899151
 )
+
+func TestMain(m *testing.M) {
+	call := m.Run()
+
+	var err error
+	err = testutil.TruncateTable("[moment].[Moments]")
+	err = testutil.TruncateTable("[moment].[Leaves]")
+	err = testutil.TruncateTable("[moment].[Shares]")
+	err = testutil.TruncateTable("[moment].[Media]")
+	if err != nil {
+		fmt.Printf("err = %v", err)
+	}
+
+	os.Exit(call)
+}
 
 func Test_Moment_leave(t *testing.T) {
 
@@ -29,13 +45,13 @@ func Test_Moment_leave(t *testing.T) {
 		m.Message = "Hello World"
 		m.MediaDir = ""
 		m.Public = true
+		m.Shared = false
 		m.RecipientIDs = nil
 
 		if err := m.leave(); err != nil {
 			t.Error(err)
 		}
 
-		return
 	})
 
 	t.Run("2", func(t *testing.T) {
@@ -48,6 +64,7 @@ func Test_Moment_leave(t *testing.T) {
 		m.Message = "Hello World"
 		m.MediaDir = "image location"
 		m.Public = true
+		m.Shared = false
 		m.RecipientIDs = nil
 
 		if err := m.leave(); err != nil {
@@ -66,6 +83,7 @@ func Test_Moment_leave(t *testing.T) {
 		m.Message = "Hello World"
 		m.MediaDir = "video location"
 		m.Public = true
+		m.Shared = false
 		m.RecipientIDs = nil
 
 		if err := m.leave(); err != nil {
@@ -84,6 +102,7 @@ func Test_Moment_leave(t *testing.T) {
 		m.Message = "Hello World"
 		m.MediaDir = ""
 		m.Public = false
+		m.Shared = false
 		m.RecipientIDs = []string{User_2, User_3}
 
 		if err := m.leave(); err != nil {
@@ -102,9 +121,35 @@ func Test_Moment_leave(t *testing.T) {
 		m.Message = "Hello World"
 		m.MediaDir = "image location"
 		m.Public = true
+		m.Shared = false
 		m.RecipientIDs = nil
 
 		if err := m.leave(); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_find(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		m := new(Moment)
+		m.ID = 1
+		m.RecipientIDs = []string{User_2}
+
+		if err := m.find(); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_share(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		m := new(Moment)
+		m.RecipientID = User_2
+		m.ID = 4
+		m.RecipientIDs = []string{User_1, User_3}
+
+		if err := m.share(); err != nil {
 			t.Error(err)
 		}
 	})

@@ -3,7 +3,6 @@ package moment
 import (
 	"database/sql"
 	"errors"
-	// "fmt"
 	_ "github.com/minus5/gofreetds"
 	"log"
 	"strings"
@@ -40,11 +39,13 @@ type Content struct {
 type Moment struct {
 	ID           int64
 	SenderID     string
+	RecipientID  string
 	RecipientIDs []string
 	Location
 	Content
 	Found      bool
 	FindDate   time.Time
+	Shared     bool
 	Public     bool
 	CreateDate time.Time
 }
@@ -110,10 +111,10 @@ func searchShared(u string) ([]Moment, error) {
 	query := `SELECT mo.ID, 
 					 mo.SenderID, 
 					 mo.Latitude,
-					 mo.Longitude, 
-					 mo.CreateDate, 
-					 m.Type, 
-					 m.Message, 
+					 mo.Longitude,
+					 mo.CreateDate,
+					 m.Type,
+					 m.Message,
 					 m.MediaDir
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
@@ -136,7 +137,8 @@ func searchShared(u string) ([]Moment, error) {
 	fieldAddrs := []interface{}{
 		&m.ID,
 		&m.SenderID,
-		&m.Location,
+		&m.Latitude,
+		&m.Longitude,
 		&createDate,
 		&m.Type,
 		&m.Message,
@@ -379,7 +381,7 @@ func (m *Moment) leave() error {
 	}
 
 	if !m.Public {
-		insert = `INSERT [moment].[Leaves] (MomentID, RecipientID, Found) 
+		insert = `INSERT [moment].[Leaves] (MomentID, RecipientID) 
 				  VALUES `
 
 		values, args := getRecipientValues(MomentID, m.RecipientIDs)
@@ -398,70 +400,80 @@ func (m *Moment) leave() error {
 
 // Moment.find updates the corresponding moment resource in the Moment-Db.
 // The moment's found flag and found date are updated.
-// func (m *Moment) find() error {
-// 	db := openDbConn()
-// 	defer db.Close()
+func (m *Moment) find() error {
+	db := openDbConn()
+	defer db.Close()
 
-// 	updateLeave := `UPDATE [moment].[Leaves]
-// 					SET Found = 1,
-// 						FoundDate = ?
-// 					WHERE Recipient = ?
-// 						  AND MomentID = ?`
+	updateLeave := `UPDATE [moment].[Leaves]
+					SET Found = 1,
+						FindDate = ?
+					WHERE RecipientID = ?
+						  AND MomentID = ?`
 
-// 	updateArgs := []interface{}{time.Now().UTC(), m.Recipient, m.ID}
+	updateArgs := []interface{}{time.Now().UTC(), m.RecipientIDs[0], m.ID}
 
-// 	if _, err := db.Exec(updateLeave, updateArgs...); err != nil {
-// 		return err
-// 	}
+	if _, err := db.Exec(updateLeave, updateArgs...); err != nil {
+		return err
+	}
 
-// 	return nil
-// }
+	return nil
+}
 
 // // Moment.share updates the corresponding leave resource in the Moment-Db.
 // // The leaves' share flag is set to 1.
 // // A share is created for each recipient of share in the Shares table.
-// func (m *Moment) share() error {
-// 	db := openDbConn()
-// 	defer db.sqlClose()
+func (m *Moment) share() error {
+	db := openDbConn()
+	defer db.Close()
 
-// 	update := `UPDATE [moment].[Leaves]
-//    	  		   SET Share = 1
-// 			   WHERE RecipientID = ?
-// 			  	     AND MomentID = ?`
-// 	args := []interface{}{m.RecipientID, m.ID}
+	update := `UPDATE [moment].[Leaves]
+   	  		   SET Shared = 1
+   	  		   OUTPUT inserted.ID
+			   WHERE RecipientID = ?
+			  	     AND MomentID = ?`
+	args := []interface{}{m.RecipientID, m.ID}
 
-// 	t, err := db.Begin()
-// 	if err != nil {
-// 		return err
-// 	}
+	t, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			t.Rollback()
+			return
+		}
+		t.Commit()
+	}()
 
-// 	if _, err := t.Exec(update, args...); err != nil {
-// 		t.Rollback()
-// 		return error
-// 	}
+	var LeaveID int
 
-// 	insert := `INSERT INTO [moment].[Shares] (LeaveID, RecipientID)
-// 			   VALUES `
+	if err = t.QueryRow(update, args...).Scan(&LeaveID); err != nil {
+		return err
+	}
 
-// 	values, args := getRecipientValues(FK, m.RecipientIDs)
-// 	insert = insert + values
+	if err != nil {
+		return err
+	}
 
-// 	if _, err := t.Exec(insert, args...); err != nil {
-// 		t.Rollback()
-// 		return err
-// 	}
+	insert := `INSERT INTO [moment].[Shares] (LeaveID, RecipientID)
+			   VALUES `
 
-// 	t.Commit()
+	values, args := getRecipientValues(LeaveID, m.RecipientIDs)
+	insert = insert + values
 
-// 	return nil
-// }
+	if _, err := t.Exec(insert, args...); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // getSetValues accepts a list of recipients and returns a insert value for each recipient.
 func getRecipientValues(FK interface{}, RecipientIDs []string) (values string, args []interface{}) {
 	valueSet := make([]string, 0)
 	for _, v := range RecipientIDs {
-		valueSet = append(valueSet, "(?, ?, ?)")
-		args = append(args, []interface{}{FK, v, 0}...)
+		valueSet = append(valueSet, "(?, ?)")
+		args = append(args, []interface{}{FK, v}...)
 	}
 	values = strings.Join(valueSet, ", ")
 
