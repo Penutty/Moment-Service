@@ -49,6 +49,7 @@ func Test_Moment_leave(t *testing.T) {
 
 		t := uint8(r.Intn(4))
 		p := r.Intn(2)
+		h := r.Intn(2)
 
 		m = new(Moment)
 		m.SenderID = u
@@ -63,6 +64,12 @@ func Test_Moment_leave(t *testing.T) {
 			m.MediaDir = ""
 		}
 		m.Public = (p == 1)
+		if !m.Public {
+			m.Hidden = false
+		} else {
+			m.Hidden = (h == 1)
+		}
+
 		m.Shared = false
 		if !m.Public {
 			recipientIDs := make([]string, r.Intn(50)+1)
@@ -72,6 +79,7 @@ func Test_Moment_leave(t *testing.T) {
 			m.RecipientIDs = append(m.RecipientIDs, recipientIDs...)
 		} else {
 			m.RecipientIDs = nil
+
 		}
 
 		return
@@ -91,6 +99,26 @@ func Test_Moment_leave(t *testing.T) {
 
 }
 
+func Test_findPublic(t *testing.T) {
+	t.Run("1", func(t *testing.T) {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		u := users[r.Intn(len(users))]
+
+		mID, err := publicHiddenMoment()
+		if err != nil {
+			t.Error(err)
+		}
+
+		m := new(Moment)
+		m.ID = mID
+		m.FinderID = u
+
+		if err = m.findPublic(); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
 func Test_searchLost(t *testing.T) {
 	t.Run("1", func(t *testing.T) {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -103,7 +131,7 @@ func Test_searchLost(t *testing.T) {
 	})
 }
 
-func Test_find(t *testing.T) {
+func Test_findLeave(t *testing.T) {
 
 	var ms []Moment
 	var r *rand.Rand
@@ -127,7 +155,7 @@ func Test_find(t *testing.T) {
 
 	t.Run("1", func(t *testing.T) {
 
-		if err := m.find(); err != nil {
+		if err := m.findLeave(); err != nil {
 			t.Error(err)
 		}
 	})
@@ -155,8 +183,6 @@ func Test_share(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		t.Logf("mID = %v\n", mID)
-		t.Logf("u = %v\n", u)
 
 		m = new(Moment)
 		m.RecipientID = u
@@ -211,7 +237,8 @@ func Test_searchShared(t *testing.T) {
 }
 
 func Test_searchPublic(t *testing.T) {
-	l, err := publicMoment()
+	hidden := false
+	l, err := publicMomentLocation(hidden)
 	if err != nil {
 		t.Error(err)
 	}
@@ -225,13 +252,84 @@ func Test_searchPublic(t *testing.T) {
 	})
 }
 
-func publicMoment() (l Location, err error) {
+func Test_searchHiddenPublic(t *testing.T) {
+	hidden := true
+	l, err := publicMomentLocation(hidden)
+	if err != nil {
+		t.Error(err)
+	}
+
+	t.Run("1", func(t *testing.T) {
+
+		_, err = searchHiddenPublic(l)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func Test_searchFoundPublic(t *testing.T) {
+
+	u, err := finderID()
+	if err != nil {
+		t.Error(err)
+	}
+
+	t.Run("1", func(t *testing.T) {
+
+		_, err = searchFoundPublic(u)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func publicHiddenMoment() (id int, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT ID
+			  FROM moment.Moments
+			  WHERE [Public] = 1 
+			  		AND [Hidden] = 1`
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	var idS []int
+	var idTemp int
+	for rows.Next() {
+		if err = rows.Scan(&idTemp); err != nil {
+			return
+		}
+		idS = append(idS, idTemp)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	id = idS[rand.Intn(len(idS))]
+
+	return
+}
+
+func publicMomentLocation(hidden bool) (l Location, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	query := `SELECT Latitude, Longitude
 			  FROM [moment].[Moments]
-			  WHERE [Public] = 1`
+			  WHERE [Public] = 1
+			  		AND `
+	if hidden {
+		query = query + `[Hidden] = 1`
+	} else {
+		query = query + `[Hidden] = 0`
+	}
+
 	rows, err := db.Query(query)
 	if err != nil {
 		return
@@ -347,4 +445,33 @@ func senderID() (senderID string, err error) {
 	senderID = senders[rand.Intn(len(senders))]
 
 	return senderID, nil
+}
+
+func finderID() (finderID string, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT FinderID
+			  FROM [moment].[Finds]`
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var finders []string
+	for rows.Next() {
+		if err = rows.Scan(&finderID); err != nil {
+			return
+		}
+		finders = append(finders, finderID)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	finderID = finders[rand.Intn(len(finders))]
+
+	return
 }

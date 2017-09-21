@@ -49,6 +49,7 @@ type Moment struct {
 	ID           int
 	SenderID     string
 	RecipientID  string
+	FinderID     string
 	RecipientIDs []string
 	Location
 	Content
@@ -56,6 +57,7 @@ type Moment struct {
 	FindDate   time.Time
 	Shared     bool
 	Public     bool
+	Hidden     bool
 	CreateDate time.Time
 }
 
@@ -84,8 +86,65 @@ func (m *Moment) String() string {
 		m.CreateDate)
 }
 
-// Search for Public moments at certain location.
-func searchPublic(l Location) ([]Moment, error) {
+// searchHidden looks up public moments that a user has found that are flagged as hidden.
+func searchFoundPublic(u string) (ms []Moment, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT mo.ID,
+					 mo.SenderID,
+					 mo.Latitude,
+					 mo.Longitude,
+					 m.Type,
+					 m.Message,
+					 m.MediaDir,
+					 mo.CreateDate
+			  FROM [moment].[Moments] mo
+			  JOIN [moment].[Media] m 
+			    ON mo.MediaID = m.ID
+			  JOIN [moment].[Finds] f
+			    ON mo.ID = f.MomentID
+			  WHERE FinderID = ?`
+
+	rows, err := db.Query(query, u)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	m := new(Moment)
+	var createDate string
+	destAddrs := []interface{}{
+		&m.ID,
+		&m.SenderID,
+		&m.Latitude,
+		&m.Longitude,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+		&createDate,
+	}
+
+	for rows.Next() {
+		if err = rows.Scan(destAddrs...); err != nil {
+			return
+		}
+		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		if err != nil {
+			return
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	return
+
+}
+
+// searchPublic queries Moment-Db for moments that are public and not hidden.
+func searchPublic(l Location) (ms []Moment, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -101,16 +160,17 @@ func searchPublic(l Location) ([]Moment, error) {
 			  JOIN [moment].[Media] m
 			    ON mo.MediaID = m.ID
 			  WHERE mo.Latitude = ?
-			  		AND mo.Longitude = ?`
+			  		AND mo.Longitude = ?
+			  		AND mo.Hidden = 0
+			  		AND mo.[Public] = 1`
 
 	rows, err := db.Query(query, l.Latitude, l.Longitude)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer rows.Close()
 
 	m := new(Moment)
-	ms := make([]Moment, 0)
 	var createDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
@@ -125,20 +185,23 @@ func searchPublic(l Location) ([]Moment, error) {
 
 	for rows.Next() {
 		if err = rows.Scan(fieldAddrs...); err != nil {
-			return nil, err
+			return
 		}
 		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		if err != nil {
+			return
+		}
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return
 	}
 
-	return ms, nil
+	return
 }
 
-// Search for another user's shared moments.
-func searchShared(u string) ([]Moment, error) {
+// searchShared queries Moment-Db for moments that a user has found, and shared with others.
+func searchShared(u string) (ms []Moment, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -160,12 +223,11 @@ func searchShared(u string) ([]Moment, error) {
 
 	rows, err := db.Query(query, u)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer rows.Close()
 
 	m := new(Moment)
-	ms := make([]Moment, 0, 100)
 	var createDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
@@ -180,23 +242,23 @@ func searchShared(u string) ([]Moment, error) {
 
 	for rows.Next() {
 		if err = rows.Scan(fieldAddrs...); err != nil {
-			return nil, err
+			return
 		}
 		m.CreateDate, err = time.Parse(Datetime2, createDate)
 		if err != nil {
-			return nil, err
+			return
 		}
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return
 	}
 
-	return ms, nil
+	return
 }
 
-// Search for my found moments.
-func searchFound(u string) ([]Moment, error) {
+// searchFound queries Moment-Db for moments that a user has been left and has found.
+func searchFound(u string) (ms []Moment, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -219,12 +281,11 @@ func searchFound(u string) ([]Moment, error) {
 
 	rows, err := db.Query(query, u)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer rows.Close()
 
 	m := new(Moment)
-	ms := make([]Moment, 0)
 	var createDate string
 	var findDate string
 	fieldAddrs := []interface{}{
@@ -240,28 +301,28 @@ func searchFound(u string) ([]Moment, error) {
 	}
 	for rows.Next() {
 		if err = rows.Scan(fieldAddrs...); err != nil {
-			return nil, err
+			return
 		}
 		m.CreateDate, err = time.Parse(Datetime2, createDate)
 		if err != nil {
-			return nil, err
+			return
 		}
 
 		m.FindDate, err = time.Parse(Datetime2, findDate)
 		if err != nil {
-			return nil, err
+			return
 		}
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return
 	}
 
-	return ms, nil
+	return
 }
 
-// // Search for my left moments.
-func searchLeft(u string) ([]Moment, error) {
+// searchLeft queries Moment-Db for moments a user has left for others to find.
+func searchLeft(u string) (ms []Moment, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -279,12 +340,11 @@ func searchLeft(u string) ([]Moment, error) {
 
 	rows, err := db.Query(query, u)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer rows.Close()
 
 	m := new(Moment)
-	ms := make([]Moment, 0)
 	var createDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
@@ -299,17 +359,17 @@ func searchLeft(u string) ([]Moment, error) {
 	for rows.Next() {
 
 		if err = rows.Scan(fieldAddrs...); err != nil {
-			return nil, err
+			return
 		}
 
 		m.CreateDate, err = time.Parse("2006-01-02 15:04:05", createDate)
 		if err != nil {
-			return nil, err
+			return
 		}
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return
 	}
 
 	query = `SELECT RecipientID
@@ -319,27 +379,27 @@ func searchLeft(u string) ([]Moment, error) {
 	for _, v := range ms {
 		rows, err = db.Query(query, v.ID)
 		if err != nil {
-			return nil, err
+			return
 		}
 
 		var recipientID string
 		for rows.Next() {
 			if err = rows.Scan(&recipientID); err != nil {
-				return nil, err
+				return
 			}
 
 			v.RecipientIDs = append(v.RecipientIDs, recipientID)
 		}
 		if err = rows.Err(); err != nil {
-			return nil, err
+			return
 		}
 	}
 
-	return ms, nil
+	return
 }
 
-// Search for my lost moments.
-func searchLost(u string) ([]Moment, error) {
+// searchLost queries Moment-Db for moments others have left for the specified user to find.
+func searchLost(u string) (ms []Moment, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -351,30 +411,70 @@ func searchLost(u string) ([]Moment, error) {
 
 	rows, err := db.Query(query, u)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer rows.Close()
 
 	m := new(Moment)
-	ms := make([]Moment, 0)
 	for rows.Next() {
 		if err = rows.Scan(&m.ID, &m.Latitude, &m.Longitude); err != nil {
-			return nil, err
+			return
 		}
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return
 	}
 
-	return ms, nil
+	return
+}
+
+// searchHiddenPublic queries for near-by hidden public moments.
+func searchHiddenPublic(l Location) (ms []Moment, err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `SELECT ID,
+					 Latitude,
+					 Longitude
+			  FROM [moment].[Moments]
+			  WHERE [Public] = 1
+			  		AND Hidden = 1
+			  		AND Latitude = ?
+			  		AND Longitude = ?`
+	args := []interface{}{l.Latitude, l.Longitude}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	m := new(Moment)
+	destAddrs := []interface{}{
+		&m.ID,
+		&m.Latitude,
+		&m.Longitude,
+	}
+
+	for rows.Next() {
+		if err = rows.Scan(destAddrs...); err != nil {
+			return
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
+
+	return
 }
 
 // Moment.leave creates a new moment in Moment-Db.
 // The moment content; type, message, and MediaDir are stored.
 // The moment is stored.
 // If the moment is not public, the leaves are stored.
-func (m *Moment) leave() error {
+func (m *Moment) leave() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -384,33 +484,33 @@ func (m *Moment) leave() error {
 
 	t, err := db.Begin()
 	if err != nil {
-		return err
+		return
 	}
 
 	res, err := t.Exec(insert, args...)
 	if err != nil {
 		t.Rollback()
-		return err
+		return
 	}
 
 	MediaID, err := res.LastInsertId()
 	if err != nil {
-		return err
+		return
 	}
 
-	insert = `INSERT [moment].[Moments] ([SenderID], [Latitude], [Longitude], [MediaID], [Public], [CreateDate])
-					 VALUES (?, ?, ?, ?, ?, ?)`
-	args = []interface{}{m.SenderID, m.Latitude, m.Longitude, MediaID, m.Public, m.CreateDate}
+	insert = `INSERT [moment].[Moments] ([SenderID], [Latitude], [Longitude], [MediaID], [Public], [Hidden], [CreateDate])
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`
+	args = []interface{}{m.SenderID, m.Latitude, m.Longitude, MediaID, m.Public, m.Hidden, m.CreateDate}
 
 	res, err = t.Exec(insert, args...)
 	if err != nil {
 		t.Rollback()
-		return err
+		return
 	}
 
 	MomentID, err := res.LastInsertId()
 	if err != nil {
-		return err
+		return
 	}
 
 	if !m.Public {
@@ -422,7 +522,7 @@ func (m *Moment) leave() error {
 
 		if _, err = t.Exec(insert, args...); err != nil {
 			t.Rollback()
-			return err
+			return
 		}
 	}
 
@@ -431,9 +531,9 @@ func (m *Moment) leave() error {
 	return nil
 }
 
-// Moment.find updates the corresponding moment resource in the Moment-Db.
+// Moment.findLeave updates the corresponding moment resource in the Moment-Db.
 // The moment's found flag and found date are updated.
-func (m *Moment) find() error {
+func (m *Moment) findLeave() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -445,17 +545,42 @@ func (m *Moment) find() error {
 
 	updateArgs := []interface{}{time.Now().UTC(), m.RecipientID, m.ID}
 
-	if _, err := db.Exec(updateLeave, updateArgs...); err != nil {
-		return err
+	res, err := db.Exec(updateLeave, updateArgs...)
+	if err != nil {
+		return
+	}
+	if err = validateRowsAffected(res, 1); err != nil {
+		return
 	}
 
-	return nil
+	return
+}
+
+// Moment.findPublic inserts a new record into the Finds table.
+// This row consists of the user's UserID and the found MomentID.
+func (m *Moment) findPublic() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	insertFind := `INSERT INTO [moment].[Finds]
+				   VALUES (?, ?)`
+	args := []interface{}{m.ID, m.FinderID}
+
+	res, err := db.Exec(insertFind, args...)
+	if err != nil {
+		return
+	}
+	if err = validateRowsAffected(res, 1); err != nil {
+		return
+	}
+
+	return
 }
 
 // // Moment.share updates the corresponding leave resource in the Moment-Db.
 // // The leaves' share flag is set to 1.
 // // A share is created for each recipient of share in the Shares table.
-func (m *Moment) share() error {
+func (m *Moment) share() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -468,7 +593,7 @@ func (m *Moment) share() error {
 
 	t, err := db.Begin()
 	if err != nil {
-		return err
+		return
 	}
 	defer func() {
 		if err != nil {
@@ -479,13 +604,12 @@ func (m *Moment) share() error {
 	}()
 
 	var LeaveID int
-
 	if err = t.QueryRow(update, args...).Scan(&LeaveID); err != nil {
-		return err
+		return
 	}
 
 	if err != nil {
-		return err
+		return
 	}
 
 	insert := `INSERT INTO [moment].[Shares] (LeaveID, RecipientID)
@@ -494,11 +618,11 @@ func (m *Moment) share() error {
 	values, args := getRecipientValues(LeaveID, m.RecipientIDs)
 	insert = insert + values
 
-	if _, err := t.Exec(insert, args...); err != nil {
-		return err
+	if _, err = t.Exec(insert, args...); err != nil {
+		return
 	}
 
-	return nil
+	return
 }
 
 // getSetValues accepts a list of recipients and returns a insert value for each recipient.
@@ -530,4 +654,21 @@ func openDbConn() *sql.DB {
 	}
 
 	return dbConn
+}
+
+// validateDbExecResult compares the number of records modified by the Exec
+// to the expected number of records expected to have been modified.
+// Function errors on actual and expected not being equal.
+func validateRowsAffected(res sql.Result, expected int) (err error) {
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+
+	if rows != int64(expected) {
+		err = errors.New("db.Exec affected an unpredicted number of rows.")
+		return
+	}
+
+	return
 }
