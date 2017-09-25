@@ -6,7 +6,6 @@ import (
 	"fmt"
 	_ "github.com/minus5/gofreetds"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -21,7 +20,7 @@ const (
 var InterfaceTypeNotRecognized = errors.New("The type switch does not recognize the interface type.")
 var ConnStrFailed = errors.New("Connection to Moment-Db failed.")
 
-// Location is a geographical point identified by longitude, latitude, and altitude.
+// Location is a geographical point identified by longitude, latitude.
 type Location struct {
 	Latitude  float32
 	Longitude float32
@@ -31,9 +30,21 @@ func (l *Location) String() string {
 	return fmt.Sprintf("Latitude: %v\nLongitude: %v\n", l.Latitude, l.Longitude)
 }
 
+func (l *Location) balloon() (lRange []interface{}) {
+	lRange = []interface{}{
+		l.Latitude - 3,
+		l.Latitude + 3,
+		l.Longitude - 3,
+		l.Longitude + 3,
+	}
+
+	return
+}
+
 // Content is a set resources that belong to a Moment.
 // Content may be a message, image, and/or a video.
 type Content struct {
+	MomentID int
 	Type     uint8
 	Message  string
 	MediaDir string
@@ -43,113 +54,229 @@ func (c *Content) String() string {
 	return fmt.Sprintf("Type: %v\nMessage: %v\nMediaDir: %v\n", c.Type, c.Message, c.MediaDir)
 }
 
+func (c *Content) create(t *sql.Tx) (err error) {
+	query := `INSERT INTO [moment].[Media] (MomentID, Message, Type, MediaDir)
+			  VALUES (?, ?, ?, ?)`
+	args := []interface{}{c.MomentID, c.Message, c.Type, c.MediaDir}
+
+	_, err = t.Exec(query, args...)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+type FindsRow struct {
+	MomentID int
+	UserID   string
+	Found    bool
+	FindDate time.Time
+	Shares   *[]SharesRow
+}
+
+func (f *FindsRow) String() string {
+	return fmt.Sprintf(`MomentID: %v
+						UserID: %v
+						Found: %v
+						FindDate: %v
+						Shares: %v`,
+		f.MomentID,
+		f.UserID,
+		f.Found,
+		f.FindDate,
+		f.Shares)
+}
+
+func (f *FindsRow) create(i interface{}) (err error) {
+
+	insert := `INSERT [moment].[Finds] (MomentID, UserID, Found) 
+			  VALUES (?, ?, ?)`
+	args := []interface{}{f.MomentID, f.UserID, f.Found}
+
+	switch v := i.(type) {
+	case *sql.DB:
+		_, err = v.Exec(insert, args...)
+	case *sql.Tx:
+		_, err = v.Exec(insert, args...)
+	default:
+		return errors.New("No DB or Tx Connection was passed to FindsRow.Create().")
+	}
+
+	return
+}
+
+func (f *FindsRow) find(MomentID string) (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	updateFindsRow := `UPDATE [moment].[Finds]
+					   SET Found = 1,
+					   FindDate = ?
+					   WHERE UserID = ?
+					  		 AND MomentID = ?`
+
+	args := []interface{}{time.Now().UTC(), f.UserID, f.MomentID}
+
+	res, err := db.Exec(updateFindsRow, args...)
+	if err != nil {
+		return
+	}
+	if err = validateRowsAffected(res, 1); err != nil {
+		return
+	}
+
+	return
+}
+
+func (f *FindsRow) share() (err error) {
+	for _, s := range *f.Shares {
+		if err = s.create(); err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+type SharesRow struct {
+	MomentID    int
+	UserID      string
+	All         bool
+	RecipientID string
+}
+
+func (s *SharesRow) String() string {
+	return fmt.Sprintf(`MomentID: %v
+						UserID: %v
+						All: %v
+						RecipientID: %v`,
+		s.MomentID,
+		s.UserID,
+		s.All,
+		s.RecipientID)
+}
+
+func (s *SharesRow) create() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, All, RecipientID)
+			   VALUES (?, ?, ?, ?)`
+	args := []interface{}{s.MomentID, s.UserID, s.All, s.RecipientID}
+
+	if _, err = db.Exec(insert, args...); err != nil {
+		return
+	}
+
+	return
+}
+
 // Moment is the main resource of this package.
 // It is a grouping of the Content and Location structs.
-type Moment struct {
-	ID           int
-	SenderID     string
-	RecipientID  string
-	FinderID     string
-	RecipientIDs []string
+type MomentsRow struct {
 	Location
 	Content
-	Found      bool
-	FindDate   time.Time
-	Shared     bool
+	ID         int
+	UserID     string
+	Finds      *[]FindsRow
 	Public     bool
 	Hidden     bool
 	CreateDate time.Time
 }
 
-func (m *Moment) String() string {
+func (m *MomentsRow) String() string {
 	return fmt.Sprintf(`ID: %v
-						SenderID: %v
-						RecipientID: %v
-						RecipientIDs: %v
+						UserID: %v
 						Location: %v
 						Content: %v
-						Found: %v
-						FindDate: %v
-						Shared: %v
 						Public: %v
-						CreateDate: %v`,
+						Hidden: %v
+						CreateDate: %v
+						Finds: %v`,
 		m.ID,
-		m.SenderID,
-		m.RecipientID,
-		m.RecipientIDs,
+		m.UserID,
 		m.Location,
 		m.Content,
-		m.Found,
-		m.FindDate,
-		m.Shared,
 		m.Public,
-		m.CreateDate)
+		m.Hidden,
+		m.CreateDate,
+		m.Finds)
 }
 
-// searchHidden looks up public moments that a user has found that are flagged as hidden.
-func searchFoundPublic(u string) (ms []Moment, err error) {
+// Moment.leave creates a new moment in Moment-Db.
+// The moment content; type, message, and MediaDir are stored.
+// The moment is stored.
+// If the moment is not public, the leaves are stored.
+func (m *MomentsRow) create() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
-	query := `SELECT mo.ID,
-					 mo.SenderID,
-					 mo.Latitude,
-					 mo.Longitude,
-					 m.Type,
-					 m.Message,
-					 m.MediaDir,
-					 mo.CreateDate
-			  FROM [moment].[Moments] mo
-			  JOIN [moment].[Media] m 
-			    ON mo.MediaID = m.ID
-			  JOIN [moment].[Finds] f
-			    ON mo.ID = f.MomentID
-			  WHERE FinderID = ?`
+	insert := `INSERT [moment].[Moments] ([UserID], [Latitude], [Longitude], [Public], [Hidden], [CreateDate])
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`
+	args := []interface{}{m.UserID, m.Latitude, m.Longitude, m.Public, m.Hidden, m.CreateDate}
 
-	rows, err := db.Query(query, u)
+	t, err := db.Begin()
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-
-	m := new(Moment)
-	var createDate string
-	destAddrs := []interface{}{
-		&m.ID,
-		&m.SenderID,
-		&m.Latitude,
-		&m.Longitude,
-		&m.Type,
-		&m.Message,
-		&m.MediaDir,
-		&createDate,
-	}
-
-	for rows.Next() {
-		if err = rows.Scan(destAddrs...); err != nil {
-			return
-		}
-		m.CreateDate, err = time.Parse(Datetime2, createDate)
+	defer func() {
 		if err != nil {
+			t.Rollback()
 			return
 		}
-		ms = append(ms, *m)
+		t.Commit()
+	}()
+
+	res, err := t.Exec(insert, args...)
+	if err != nil {
+		return
 	}
-	if err = rows.Err(); err != nil {
+
+	if err = validateRowsAffected(res, 1); err != nil {
+		return
+	}
+
+	if err = m.Content.create(t); err != nil {
+		return
+	}
+
+	if !m.Public {
+		for _, f := range *m.Finds {
+			if err = f.create(t); err != nil {
+				return
+			}
+		}
+	}
+
+	return
+}
+
+// Moment.find inserts a row.
+func (m *MomentsRow) find(u string) (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	f := &FindsRow{
+		MomentID: m.ID,
+		UserID:   u,
+		Found:    true,
+	}
+
+	if err = f.create(db); err != nil {
 		return
 	}
 
 	return
-
 }
 
 // searchPublic queries Moment-Db for moments that are public and not hidden.
-func searchPublic(l Location) (ms []Moment, err error) {
+func searchPublic(l Location) (ms []MomentsRow, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	query := `SELECT mo.ID,
-					 mo.SenderID,
+					 mo.UserID,
 					 mo.Latitude, 
 					 mo.Longitude,
 					 m.Type,
@@ -158,23 +285,24 @@ func searchPublic(l Location) (ms []Moment, err error) {
 					 mo.CreateDate
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
-			    ON mo.MediaID = m.ID
-			  WHERE mo.Latitude = ?
-			  		AND mo.Longitude = ?
-			  		AND mo.Hidden = 0
-			  		AND mo.[Public] = 1`
+			    ON mo.ID = m.MomentID
+			  WHERE mo.Hidden = 0
+			  		AND mo.[Public] = 1
+			  		AND mo.Latitude BETWEEN ? AND ?
+			  		AND mo.Longitude BETWEEN ? AND ?`
 
-	rows, err := db.Query(query, l.Latitude, l.Longitude)
+	lRange := l.balloon()
+	rows, err := db.Query(query, lRange...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	m := new(Moment)
+	m := new(MomentsRow)
 	var createDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
-		&m.SenderID,
+		&m.UserID,
 		&m.Latitude,
 		&m.Longitude,
 		&m.Type,
@@ -201,12 +329,12 @@ func searchPublic(l Location) (ms []Moment, err error) {
 }
 
 // searchShared queries Moment-Db for moments that a user has found, and shared with others.
-func searchShared(u string) (ms []Moment, err error) {
+func searchShared(u string, me string) (ms []MomentsRow, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	query := `SELECT mo.ID, 
-					 mo.SenderID, 
+					 mo.UserID, 
 					 mo.Latitude,
 					 mo.Longitude,
 					 mo.CreateDate,
@@ -215,23 +343,25 @@ func searchShared(u string) (ms []Moment, err error) {
 					 m.MediaDir
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
-			    ON mo.MediaID = m.ID
-			  JOIN [moment].[Leaves] l
-			    ON mo.ID = l.MomentID
-			  WHERE l.RecipientID = ?
-			  		AND l.Shared = 1`
+			    ON mo.ID = m.MomentID
+			  JOIN [moment].[Finds] f
+			    ON mo.ID = f.MomentID
+			  JOIN [moment].[Shares] s
+			  	ON mo.ID = s.MomentID
+			  WHERE f.UserID = ?
+			  		AND (s.All = 1 OR s.RecipientID = ?)`
 
-	rows, err := db.Query(query, u)
+	rows, err := db.Query(query, u, me)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	m := new(Moment)
+	m := new(MomentsRow)
 	var createDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
-		&m.SenderID,
+		&m.UserID,
 		&m.Latitude,
 		&m.Longitude,
 		&createDate,
@@ -258,26 +388,26 @@ func searchShared(u string) (ms []Moment, err error) {
 }
 
 // searchFound queries Moment-Db for moments that a user has been left and has found.
-func searchFound(u string) (ms []Moment, err error) {
+func searchFound(u string) (ms []MomentsRow, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	query := `SELECT mo.ID,
-					 mo.SenderID,
+					 mo.UserID,
 					 mo.Latitude,
 					 mo.Longitude,
 					 mo.CreateDate,
-					 l.FindDate,
+					 f.FindDate,
 					 m.Type,
 					 m.Message,
 					 m.MediaDir
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
-			    ON mo.MediaID = m.ID
-			  JOIN [moment].[Leaves] l
-			    ON mo.ID = l.MomentID
-			  WHERE l.RecipientID = ?
-			  		AND l.Found = 1`
+			    ON mo.ID = m.MomentID
+			  JOIN [moment].[Finds] f
+			    ON mo.ID = f.MomentID
+			  WHERE f.UserID = ?
+			  		AND f.Found = 1`
 
 	rows, err := db.Query(query, u)
 	if err != nil {
@@ -285,12 +415,13 @@ func searchFound(u string) (ms []Moment, err error) {
 	}
 	defer rows.Close()
 
-	m := new(Moment)
+	m := new(MomentsRow)
+	f := make([]FindsRow, 1)
 	var createDate string
 	var findDate string
 	fieldAddrs := []interface{}{
 		&m.ID,
-		&m.SenderID,
+		&m.UserID,
 		&m.Latitude,
 		&m.Longitude,
 		&createDate,
@@ -308,10 +439,11 @@ func searchFound(u string) (ms []Moment, err error) {
 			return
 		}
 
-		m.FindDate, err = time.Parse(Datetime2, findDate)
+		f[0].FindDate, err = time.Parse(Datetime2, findDate)
 		if err != nil {
 			return
 		}
+		m.Finds = &f
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
@@ -322,7 +454,7 @@ func searchFound(u string) (ms []Moment, err error) {
 }
 
 // searchLeft queries Moment-Db for moments a user has left for others to find.
-func searchLeft(u string) (ms []Moment, err error) {
+func searchLeft(u string) (ms []MomentsRow, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -332,11 +464,16 @@ func searchLeft(u string) (ms []Moment, err error) {
 					 mo.CreateDate,
 					 m.Type,
 					 m.Message,
-					 m.MediaDir
+					 m.MediaDir,
+					 f.UserID, 
+					 f.Found,
+					 f.FindDate
 			  FROM [moment].[Moments] mo
 			  JOIN [moment].[Media] m
-			    ON mo.MediaID = m.ID
-			  WHERE mo.SenderID = ?`
+			    ON mo.ID = m.MomentID
+			  JOIN [moment].[Finds] f
+			    ON mo.ID = f.MomentID
+			  WHERE mo.UserID = ?`
 
 	rows, err := db.Query(query, u)
 	if err != nil {
@@ -344,9 +481,10 @@ func searchLeft(u string) (ms []Moment, err error) {
 	}
 	defer rows.Close()
 
-	m := new(Moment)
+	m := new(MomentsRow)
+	f := new(FindsRow)
 	var createDate string
-	fieldAddrs := []interface{}{
+	addrs := []interface{}{
 		&m.ID,
 		&m.Latitude,
 		&m.Longitude,
@@ -354,68 +492,64 @@ func searchLeft(u string) (ms []Moment, err error) {
 		&m.Type,
 		&m.Message,
 		&m.MediaDir,
+		&f.UserID,
+		&f.Found,
+		&f.FindDate,
 	}
 
+	var prevID int
 	for rows.Next() {
-
-		if err = rows.Scan(fieldAddrs...); err != nil {
+		if err = rows.Scan(addrs...); err != nil {
 			return
 		}
 
-		m.CreateDate, err = time.Parse("2006-01-02 15:04:05", createDate)
-		if err != nil {
-			return
-		}
-		ms = append(ms, *m)
-	}
-	if err = rows.Err(); err != nil {
-		return
-	}
+		*m.Finds = append(*m.Finds, *f)
 
-	query = `SELECT RecipientID
-			  FROM [moment].[Leaves]
-			  WHERE MomentID = ?`
-
-	for _, v := range ms {
-		rows, err = db.Query(query, v.ID)
-		if err != nil {
-			return
-		}
-
-		var recipientID string
-		for rows.Next() {
-			if err = rows.Scan(&recipientID); err != nil {
+		if m.ID != prevID {
+			m.CreateDate, err = time.Parse(Datetime2, createDate)
+			if err != nil {
 				return
 			}
 
-			v.RecipientIDs = append(v.RecipientIDs, recipientID)
+			ms = append(ms, *m)
 		}
-		if err = rows.Err(); err != nil {
-			return
-		}
+	}
+	if err = rows.Err(); err != nil {
+		return
 	}
 
 	return
 }
 
 // searchLost queries Moment-Db for moments others have left for the specified user to find.
-func searchLost(u string) (ms []Moment, err error) {
+func searchLost(u string, l Location) (ms []MomentsRow, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	query := `SELECT mo.ID, mo.Latitude, mo.Longitude
 			  FROM [moment].[Moments] mo
-			  JOIN [moment].[Leaves] l
-			    ON mo.ID = l.MomentID
-			  WHERE l.RecipientID = ?`
+			  JOIN [moment].[Finds] f
+			    ON mo.ID = f.MomentID
+			  WHERE ((f.UserID = ? AND f.Found = 0)
+			  		OR (mo.Hidden = 1))
+			  		AND mo.Latitude BETWEEN ? AND ?
+			  		AND mo.Longitude BETWEEN ? AND ?`
 
-	rows, err := db.Query(query, u)
+	lRange := l.balloon()
+	if err != nil {
+		return
+	}
+
+	args := []interface{}{u}
+	args = append(args, lRange...)
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	m := new(Moment)
+	m := new(MomentsRow)
 	for rows.Next() {
 		if err = rows.Scan(&m.ID, &m.Latitude, &m.Longitude); err != nil {
 			return
@@ -427,214 +561,6 @@ func searchLost(u string) (ms []Moment, err error) {
 	}
 
 	return
-}
-
-// searchHiddenPublic queries for near-by hidden public moments.
-func searchHiddenPublic(l Location) (ms []Moment, err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	query := `SELECT ID,
-					 Latitude,
-					 Longitude
-			  FROM [moment].[Moments]
-			  WHERE [Public] = 1
-			  		AND Hidden = 1
-			  		AND Latitude = ?
-			  		AND Longitude = ?`
-	args := []interface{}{l.Latitude, l.Longitude}
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	m := new(Moment)
-	destAddrs := []interface{}{
-		&m.ID,
-		&m.Latitude,
-		&m.Longitude,
-	}
-
-	for rows.Next() {
-		if err = rows.Scan(destAddrs...); err != nil {
-			return
-		}
-		ms = append(ms, *m)
-	}
-	if err = rows.Err(); err != nil {
-		return
-	}
-
-	return
-}
-
-// Moment.leave creates a new moment in Moment-Db.
-// The moment content; type, message, and MediaDir are stored.
-// The moment is stored.
-// If the moment is not public, the leaves are stored.
-func (m *Moment) leave() (err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	insert := `INSERT [moment].[Media] (Type, Message, MediaDir)
-					VALUES (?, ?, ?)`
-	args := []interface{}{m.Type, m.Message, m.MediaDir}
-
-	t, err := db.Begin()
-	if err != nil {
-		return
-	}
-
-	res, err := t.Exec(insert, args...)
-	if err != nil {
-		t.Rollback()
-		return
-	}
-
-	MediaID, err := res.LastInsertId()
-	if err != nil {
-		return
-	}
-
-	insert = `INSERT [moment].[Moments] ([SenderID], [Latitude], [Longitude], [MediaID], [Public], [Hidden], [CreateDate])
-					 VALUES (?, ?, ?, ?, ?, ?, ?)`
-	args = []interface{}{m.SenderID, m.Latitude, m.Longitude, MediaID, m.Public, m.Hidden, m.CreateDate}
-
-	res, err = t.Exec(insert, args...)
-	if err != nil {
-		t.Rollback()
-		return
-	}
-
-	MomentID, err := res.LastInsertId()
-	if err != nil {
-		return
-	}
-
-	if !m.Public {
-		insert = `INSERT [moment].[Leaves] (MomentID, RecipientID) 
-				  VALUES `
-
-		values, args := getRecipientValues(MomentID, m.RecipientIDs)
-		insert = insert + values
-
-		if _, err = t.Exec(insert, args...); err != nil {
-			t.Rollback()
-			return
-		}
-	}
-
-	t.Commit()
-
-	return nil
-}
-
-// Moment.findLeave updates the corresponding moment resource in the Moment-Db.
-// The moment's found flag and found date are updated.
-func (m *Moment) findLeave() (err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	updateLeave := `UPDATE [moment].[Leaves]
-					SET Found = 1,
-						FindDate = ?
-					WHERE RecipientID = ?
-						  AND MomentID = ?`
-
-	updateArgs := []interface{}{time.Now().UTC(), m.RecipientID, m.ID}
-
-	res, err := db.Exec(updateLeave, updateArgs...)
-	if err != nil {
-		return
-	}
-	if err = validateRowsAffected(res, 1); err != nil {
-		return
-	}
-
-	return
-}
-
-// Moment.findPublic inserts a new record into the Finds table.
-// This row consists of the user's UserID and the found MomentID.
-func (m *Moment) findPublic() (err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	insertFind := `INSERT INTO [moment].[Finds]
-				   VALUES (?, ?)`
-	args := []interface{}{m.ID, m.FinderID}
-
-	res, err := db.Exec(insertFind, args...)
-	if err != nil {
-		return
-	}
-	if err = validateRowsAffected(res, 1); err != nil {
-		return
-	}
-
-	return
-}
-
-// // Moment.share updates the corresponding leave resource in the Moment-Db.
-// // The leaves' share flag is set to 1.
-// // A share is created for each recipient of share in the Shares table.
-func (m *Moment) share() (err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	update := `UPDATE [moment].[Leaves]
-   	  		   SET Shared = 1
-   	  		   OUTPUT inserted.ID
-			   WHERE RecipientID = ?
-			  	     AND MomentID = ?`
-	args := []interface{}{m.RecipientID, m.ID}
-
-	t, err := db.Begin()
-	if err != nil {
-		return
-	}
-	defer func() {
-		if err != nil {
-			t.Rollback()
-			return
-		}
-		t.Commit()
-	}()
-
-	var LeaveID int
-	if err = t.QueryRow(update, args...).Scan(&LeaveID); err != nil {
-		return
-	}
-
-	if err != nil {
-		return
-	}
-
-	insert := `INSERT INTO [moment].[Shares] (LeaveID, RecipientID)
-			   VALUES `
-
-	values, args := getRecipientValues(LeaveID, m.RecipientIDs)
-	insert = insert + values
-
-	if _, err = t.Exec(insert, args...); err != nil {
-		return
-	}
-
-	return
-}
-
-// getSetValues accepts a list of recipients and returns a insert value for each recipient.
-func getRecipientValues(FK interface{}, RecipientIDs []string) (values string, args []interface{}) {
-	valueSet := make([]string, 0)
-	for _, v := range RecipientIDs {
-		valueSet = append(valueSet, "(?, ?)")
-		args = append(args, []interface{}{FK, v}...)
-	}
-	values = strings.Join(valueSet, ", ")
-
-	return values, args
 }
 
 //
