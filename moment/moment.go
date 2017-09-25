@@ -76,11 +76,11 @@ type FindsRow struct {
 }
 
 func (f *FindsRow) String() string {
-	return fmt.Sprintf(`MomentID: %v
-						UserID: %v
-						Found: %v
-						FindDate: %v
-						Shares: %v`,
+	return fmt.Sprintf("MomentID: %v\n"+
+		"UserID:   %v\n"+
+		"Found: 	  %v\n"+
+		"FindDate: %v\n"+
+		"Shares:   %v\n",
 		f.MomentID,
 		f.UserID,
 		f.Found,
@@ -147,10 +147,11 @@ type SharesRow struct {
 }
 
 func (s *SharesRow) String() string {
-	return fmt.Sprintf(`MomentID: %v
-						UserID: %v
-						All: %v
-						RecipientID: %v`,
+
+	return fmt.Sprintf("MomentID: %v\n"+
+		"UserID: %v\n"+
+		"All: %v\n"+
+		"RecipientID: %v\n",
 		s.MomentID,
 		s.UserID,
 		s.All,
@@ -186,14 +187,14 @@ type MomentsRow struct {
 }
 
 func (m *MomentsRow) String() string {
-	return fmt.Sprintf(`ID: %v
-						UserID: %v
-						Location: %v
-						Content: %v
-						Public: %v
-						Hidden: %v
-						CreateDate: %v
-						Finds: %v`,
+	return fmt.Sprintf("ID: %v\n"+
+		"UserID: %v\n"+
+		"Location: %v\n"+
+		"Content: %v\n"+
+		"Public: %v\n"+
+		"Hidden: %v\n"+
+		"CreateDate: %v\n"+
+		"Finds: %v\n",
 		m.ID,
 		m.UserID,
 		m.Location,
