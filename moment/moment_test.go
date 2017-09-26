@@ -9,7 +9,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
-	// "testutil"
+	"testutil"
 	"time"
 )
 
@@ -26,26 +26,47 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	fmt.Printf("moments[0]:\n%v\n", moments[0])
+
 	call := m.Run()
 
-	// if err := deleteDataTestDb(); err != nil {
-	// 	panic(err)
-	// }
+	fmt.Printf("moments[0]:\n%v\n", moments[0])
+
+	if err := deleteDataTestDb(); err != nil {
+		panic(err)
+	}
 
 	os.Exit(call)
 }
 
-// func Test_Moment_leave(t *testing.T) {
-// 	for i, v := range moments {
-// 		t.Run("i", func(t *testing.T) {
-// 			t.Parallel()
+func Test_Moment_leave(t *testing.T) {
+	for i, _ := range moments {
 
-// 			if err := v.leave(); err != nil {
-// 				t.Error(err)
-// 			}
-// 		})
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			// t.Parallel()
+			if err := moments[i].create(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+// func Test_Moment_share(t *testing.T) {
+// 	for i, m := range moments {
+// 		if m.Finds == nil {
+// 			continue
+// 		}
+// 		for j, v := range *m.Finds {
+// 			f := v
+
+// 			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
+// 				t.Parallel()
+// 				if err := f.share(); err != nil {
+// 					t.Error(err)
+// 				}
+// 			})
+// 		}
 // 	}
-
 // }
 
 // func Test_findPublic(t *testing.T) {
@@ -227,8 +248,7 @@ func insertDataTestDb() (err error) {
 	for i, _ := range users {
 		users[i] = "User_" + strconv.Itoa(i)
 	}
-
-	fmt.Printf("users = %v\n\n", users)
+	fmt.Printf("Test Users Generated...\n\n")
 
 	moments = make([]MomentsRow, *momentCnt)
 	for i, _ := range moments {
@@ -236,8 +256,8 @@ func insertDataTestDb() (err error) {
 
 		moments[i].UserID = users[i%*userCnt]
 		moments[i].CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
-		moments[i].Latitude = float32(r.Intn(360) - 180)
-		moments[i].Longitude = float32(r.Intn(180) - 180)
+		moments[i].Latitude = float32(r.Intn(180) - 90)
+		moments[i].Longitude = float32(r.Intn(360) - 180)
 		moments[i].Type = uint8(r.Intn(4))
 		moments[i].Message = "This message must be less than 256 characters. May adjust length restrictions."
 
@@ -259,8 +279,8 @@ func insertDataTestDb() (err error) {
 				return
 			}
 		}
-		fmt.Printf("moment[%v] = %v\n\n", i, moments[i].String())
 	}
+	fmt.Printf("Test Moments Generated...\n\n")
 
 	return
 }
@@ -271,8 +291,7 @@ func generateFinds(m *MomentsRow) (err error) {
 
 	finds := make([]FindsRow, findCnt)
 	for i := 0; i < findCnt; i++ {
-		finds[i].MomentID = m.ID
-		finds[i].UserID = users[rand.Intn(*userCnt)]
+		finds[i].UserID = users[(findCnt+i)%*userCnt]
 		finds[i].Found = (rand.Intn(2) == 1)
 		finds[i].FindDate = m.CreateDate.AddDate(0, 0, rand.Intn(14))
 
@@ -292,15 +311,31 @@ func generateShares(f *FindsRow) (err error) {
 
 	shares := make([]SharesRow, shareCnt)
 	for j := 0; j < shareCnt; j++ {
-		shares[j].MomentID = f.MomentID
 		shares[j].UserID = f.UserID
 		shares[j].All = (rand.Intn(2) == 1)
 
 		if !shares[j].All {
-			shares[j].RecipientID = users[rand.Intn(*userCnt)]
+			shares[j].RecipientID = users[(shareCnt+j)%*userCnt]
 		}
 	}
 	f.Shares = &shares
+
+	return
+}
+
+func deleteDataTestDb() (err error) {
+	if err = testutil.TruncateTable("moment.Moments"); err != nil {
+		return
+	}
+	if err = testutil.TruncateTable("moment.Media"); err != nil {
+		return
+	}
+	if err = testutil.TruncateTable("moment.Finds"); err != nil {
+		return
+	}
+	if err = testutil.TruncateTable("moment.Shares"); err != nil {
+		return
+	}
 
 	return
 }

@@ -26,7 +26,7 @@ type Location struct {
 	Longitude float32
 }
 
-func (l *Location) String() string {
+func (l Location) String() string {
 	return fmt.Sprintf("Latitude: %v\nLongitude: %v\n", l.Latitude, l.Longitude)
 }
 
@@ -50,8 +50,8 @@ type Content struct {
 	MediaDir string
 }
 
-func (c *Content) String() string {
-	return fmt.Sprintf("Type: %v\nMessage: %v\nMediaDir: %v\n", c.Type, c.Message, c.MediaDir)
+func (c Content) String() string {
+	return fmt.Sprintf("MomentID: %v\nType: %v\nMessage: %v\nMediaDir: %v\n", c.MomentID, c.Type, c.Message, c.MediaDir)
 }
 
 func (c *Content) create(t *sql.Tx) (err error) {
@@ -72,10 +72,10 @@ type FindsRow struct {
 	UserID   string
 	Found    bool
 	FindDate time.Time
-	Shares   *[]SharesRow
+	Shares   []*SharesRow
 }
 
-func (f *FindsRow) String() string {
+func (f FindsRow) String() string {
 	return fmt.Sprintf("MomentID: %v\n"+
 		"UserID:   %v\n"+
 		"Found: 	  %v\n"+
@@ -131,6 +131,7 @@ func (f *FindsRow) find(MomentID string) (err error) {
 
 func (f *FindsRow) share() (err error) {
 	for _, s := range *f.Shares {
+		s.MomentID = f.MomentID
 		if err = s.create(); err != nil {
 			return
 		}
@@ -146,7 +147,7 @@ type SharesRow struct {
 	RecipientID string
 }
 
-func (s *SharesRow) String() string {
+func (s SharesRow) String() string {
 
 	return fmt.Sprintf("MomentID: %v\n"+
 		"UserID: %v\n"+
@@ -162,7 +163,7 @@ func (s *SharesRow) create() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
-	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, All, RecipientID)
+	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, [All], RecipientID)
 			   VALUES (?, ?, ?, ?)`
 	args := []interface{}{s.MomentID, s.UserID, s.All, s.RecipientID}
 
@@ -180,13 +181,13 @@ type MomentsRow struct {
 	Content
 	ID         int
 	UserID     string
-	Finds      *[]FindsRow
+	Finds      []*FindsRow
 	Public     bool
 	Hidden     bool
 	CreateDate time.Time
 }
 
-func (m *MomentsRow) String() string {
+func (m MomentsRow) String() string {
 	return fmt.Sprintf("ID: %v\n"+
 		"UserID: %v\n"+
 		"Location: %v\n"+
@@ -214,7 +215,7 @@ func (m *MomentsRow) create() (err error) {
 	defer db.Close()
 
 	insert := `INSERT [moment].[Moments] ([UserID], [Latitude], [Longitude], [Public], [Hidden], [CreateDate])
-					 VALUES (?, ?, ?, ?, ?, ?, ?)`
+					 VALUES (?, ?, ?, ?, ?, ?)`
 	args := []interface{}{m.UserID, m.Latitude, m.Longitude, m.Public, m.Hidden, m.CreateDate}
 
 	t, err := db.Begin()
@@ -233,17 +234,25 @@ func (m *MomentsRow) create() (err error) {
 	if err != nil {
 		return
 	}
-
 	if err = validateRowsAffected(res, 1); err != nil {
 		return
 	}
 
+	lastID, err := res.LastInsertId()
+	if err != nil {
+		return
+	}
+	MomentID := int(lastID)
+	m.ID = MomentID
+
+	m.Content.MomentID = MomentID
 	if err = m.Content.create(t); err != nil {
 		return
 	}
 
 	if !m.Public {
 		for _, f := range *m.Finds {
+			f.MomentID = MomentID
 			if err = f.create(t); err != nil {
 				return
 			}
