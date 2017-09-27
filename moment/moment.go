@@ -6,10 +6,15 @@ import (
 	"fmt"
 	_ "github.com/minus5/gofreetds"
 	"log"
+	"strconv"
+	"strings"
 	"time"
 )
 
 const (
+	minUserChars = 1
+	maxUserChars = 64
+
 	Datetime2 = "2006-01-02 15:04:05"
 
 	DNE = iota
@@ -19,6 +24,16 @@ const (
 
 var InterfaceTypeNotRecognized = errors.New("The type switch does not recognize the interface type.")
 var ConnStrFailed = errors.New("Connection to Moment-Db failed.")
+
+var InvalidMomentID = errors.New("MomentID must be greater than 0.")
+var InvalidUserID = errors.New("UserID must be between 1 AND 64 characters long.")
+var InvalidRecipients = errors.New("RecipientIDs cannot be set when All=true.")
+var InvalidLocationReference = errors.New("Location reference is nil.")
+var InvalidPublicHiddenCombination = errors.New("Public=false AND Hidden=true is an invalid input combination.")
+var InvalidFindFindDateCombination = errors.New("FindDate may only be set when Found=true.")
+var InvalidMediaMessage = errors.New("Message must be between 0 and 256 characters.")
+var InvalidMediaType = errors.New("Type must be between 0 and 3")
+var InvalidMediaTypeDirCombination = errors.New("Dir must be \"\" when type=0.")
 
 // Location is a geographical point identified by longitude, latitude.
 type Location struct {
@@ -41,72 +56,185 @@ func (l *Location) balloon() (lRange []interface{}) {
 	return
 }
 
-// Content is a set resources that belong to a Moment.
-// Content may be a message, image, and/or a video.
-type Content struct {
-	MomentID int
-	Type     uint8
-	Message  string
-	MediaDir string
-}
-
-func (c Content) String() string {
-	return fmt.Sprintf("MomentID: %v\nType: %v\nMessage: %v\nMediaDir: %v\n", c.MomentID, c.Type, c.Message, c.MediaDir)
-}
-
-func (c *Content) create(t *sql.Tx) (err error) {
-	query := `INSERT INTO [moment].[Media] (MomentID, Message, Type, MediaDir)
-			  VALUES (?, ?, ?, ?)`
-	args := []interface{}{c.MomentID, c.Message, c.Type, c.MediaDir}
-
-	_, err = t.Exec(query, args...)
-	if err != nil {
-		return
+func NewMoment(l *Location, uID string, p bool, h bool, c time.Time) (m *MomentsRow, err error) {
+	switch {
+	case l == nil:
+		err = InvalidLocationReference
+	case len(uID) < minUserChars || len(uID) > maxUserChars:
+		err = InvalidRecipients
+	case !p && h:
+		err = InvalidPublicHiddenCombination
 	}
 
+	m = &MomentsRow{
+		location:   l,
+		userID:     uID,
+		public:     p,
+		hidden:     h,
+		createDate: c,
+	}
+
+	return
+
+}
+
+func NewMedia(mID int, m string, mType uint8, d string) (mr *MediaRow, err error) {
+	switch {
+	case mID < 0:
+		err = InvalidMomentID
+	case len(m) < 0 || len(m) > 256:
+		err = InvalidMediaMessage
+	case mType < minMediaType || mType > maxMediaType:
+		err = InvalidMediaType
+	case mType == 0 && d != "":
+		err = InvalidMediaTypeDirCombination
+	}
+
+	mr = &MediaRow{
+		momentID: mID,
+		message:  m,
+		mType:    mType,
+		dir:      d,
+	}
+
+	return
+
+}
+
+func NewFind(mID int, uID, string, f bool, fd *time.Time) (fr *FindsRow, err error) {
+	switch {
+	case mID < 1:
+		err = InvalidMomentID
+	case len(uID) < minUserChars || len(uID) > maxUserChars:
+		err = InvalidUserID
+	case !(f && fd != nil):
+		err = InvalidFindFindDateCombination
+	}
+
+	fr = &FindsRow{
+		momentID: mID,
+		userID:   uID,
+		found:    f,
+		findDate: fd,
+	}
+
+	return
+}
+
+func NewShare(mID int, uID string, All bool, r string) (s *sharesRow, err error) {
+	switch {
+	case mID > 0:
+		err = InvalidMomentID
+	case len(uID) < minUserChars || len(uID) > maxUserChars:
+		err = InvalidUserID
+	case len(r) < minUserChars || len(r) > maxUserChars:
+		err = InvalidUserID
+	case All && len(r) > 0:
+		err = InvalidRecipients
+	}
+
+	s = &sharesRow{
+		momentID:    mID,
+		userID:      uID,
+		all:         All,
+		recipientID: r,
+	}
+
+	return
+}
+
+type Set interface {
+	insert()
+	values()
+	args()
+}
+
+// Content is a set resources that belong to a Moment.
+// Content may be a message, image, and/or a video.
+type MediaRow struct {
+	momentID int
+	message  string
+	mType    uint8
+	dir      string
+}
+
+func (m MediaRow) String() string {
+	return fmt.Sprintf("momentID: %v\nmType: %v\nmessage: %v\ndir: %v\n", m.momentID, m.mType, m.message, m.dir)
+}
+
+func (m *MediaRow) delete() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	deleteFrom := `DELETE FROM [moment].[Media]
+				   WHERE MomentID = ?
+				   		 AND Type = ?`
+	args := []interface{}{m.momentID, m.mType}
+
+	_, err = db.Exec(deleteFrom, args...)
+
+	return
+}
+
+type Media []*MediaRow
+
+func (mSet *Media) insert() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `INSERT INTO [moment].[Media] (MomentID, Message, Type, Dir)
+			  VALUES `
+	values := mSet.values()
+	query = query + values
+	args := mSet.args()
+
+	_, err = t.Exec(query, args...)
+
+	return
+}
+
+func (mSet *Media) values() (values string) {
+	vSlice := make([]string, len(mSet))
+	for i := 0; i < len(vSlice); i++ {
+		vSlice[i] = "(?, ?, ?, ?)"
+	}
+	values = strings.Join(vSlice, ", ")
+
+	return
+}
+
+func (mSet *Media) args() (args []interface{}) {
+	fCnt = 4
+	argsCnt = len(mSet) * fCnt
+	args = make([]interface{}, argsCnt)
+	for i := 0; i < argsCnt; i = i + 4 {
+		args[i] = mSet[i].momentID
+		args[i+1] = mSet[i].message
+		args[i+2] = mSet[i].mType
+		args[i+3] = mSet[i].dir
+	}
 	return
 }
 
 type FindsRow struct {
-	MomentID int
-	UserID   string
-	Found    bool
-	FindDate time.Time
-	Shares   []*SharesRow
+	momentID int
+	userID   string
+	found    bool
+	findDate time.Time
 }
 
 func (f FindsRow) String() string {
-	return fmt.Sprintf("MomentID: %v\n"+
-		"UserID:   %v\n"+
-		"Found: 	  %v\n"+
-		"FindDate: %v\n"+
-		"Shares:   %v\n",
-		f.MomentID,
-		f.UserID,
+	return fmt.Sprintf("momentID: %v\n"+
+		"userID:   %v\n"+
+		"found: 	  %v\n"+
+		"findDate: %v\n",
+		f.momentID,
+		f.userID,
 		f.Found,
-		f.FindDate,
-		f.Shares)
+		f.FindDate)
 }
 
-func (f *FindsRow) create(i interface{}) (err error) {
-
-	insert := `INSERT [moment].[Finds] (MomentID, UserID, Found) 
-			  VALUES (?, ?, ?)`
-	args := []interface{}{f.MomentID, f.UserID, f.Found}
-
-	switch v := i.(type) {
-	case *sql.DB:
-		_, err = v.Exec(insert, args...)
-	case *sql.Tx:
-		_, err = v.Exec(insert, args...)
-	default:
-		return errors.New("No DB or Tx Connection was passed to FindsRow.Create().")
-	}
-
-	return
-}
-
-func (f *FindsRow) find(MomentID string) (err error) {
+func (f *FindsRow) find() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -122,50 +250,114 @@ func (f *FindsRow) find(MomentID string) (err error) {
 	if err != nil {
 		return
 	}
-	if err = validateRowsAffected(res, 1); err != nil {
+	err = validateRowsAffected(res, 1)
+
+	return
+}
+
+func (f *FindsRow) delete() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	deleteFrom := `DELETE FROM [moment].[Finds]
+				   WHERE MomentID = ?
+				   		 AND UserID = ?`
+	args := []interface{}{f.momentID, f.userID}
+
+	_, err = db.Exec(deleteFrom, args...)
+
+	return
+}
+
+type Finds []*FindsRow
+
+func (fSet *Finds) insert(i interface{}) (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	insert := `INSERT [moment].[Finds] (MomentID, UserID, Found, FindDate)
+			   VALUES `
+	values := fSet.values()
+	insert = insert + values
+	args := fSet.args()
+
+	if _, err := db.Exec(insert, args...); err != nil {
 		return
 	}
 
 	return
 }
 
-func (f *FindsRow) share() (err error) {
-	for _, s := range *f.Shares {
-		s.MomentID = f.MomentID
-		if err = s.create(); err != nil {
-			return
-		}
+func (fSet *Finds) values() (values string) {
+	vSlice := make([]*string, len(fSet))
+	for i := 0; i < len(fSet); i++ {
+		vSlice[i] = "(?, ?, ?, ?)"
+	}
+	values = strings.Join(vSlice, ", ")
+
+	return
+}
+
+func (fSet *Finds) args() (args []interface{}) {
+	findFieldCnt := 4
+	argsCnt := len(fSet) * findFieldCnt
+	args = make([]interface{}, argsCnt)
+	for i := 0; i < argsCnt; i = i + 4 {
+		args[i] = fSet[i].momentID
+		args[i+1] = fSet[i].userID
+		args[i+2] = fSet[i].found
+		args[i+3] = fSet[i].findDate
 	}
 
 	return
 }
 
 type SharesRow struct {
-	MomentID    int
-	UserID      string
-	All         bool
-	RecipientID string
+	momentID    int
+	userID      string
+	all         bool
+	recipientID string
 }
 
 func (s SharesRow) String() string {
 
-	return fmt.Sprintf("MomentID: %v\n"+
-		"UserID: %v\n"+
-		"All: %v\n"+
-		"RecipientID: %v\n",
-		s.MomentID,
-		s.UserID,
-		s.All,
-		s.RecipientID)
+	return fmt.Sprintf("momentID: %v\n"+
+		"userID: %v\n"+
+		"all: %v\n"+
+		"recipientID: %v\n",
+		s.momentID,
+		s.userID,
+		s.all,
+		s.recipientID)
 }
 
-func (s *SharesRow) create() (err error) {
+func (s *SharesRow) delete() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	deleteFrom := `DELETE FROM [moment].[Shares]
+				   WHERE MomentID = ?
+				   		 AND UserID = ?
+				   		 AND RecipientID = ?`
+	args := []interface{}{s.momentID, s.userID, s.recipientID}
+
+	_, err = db.Exec(deleteFrom, args...)
+
+	return
+}
+
+type Shares []*SharesRow
+
+func (sSlice *Shares) insert() (err error) {
+
 	db := openDbConn()
 	defer db.Close()
 
 	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, [All], RecipientID)
-			   VALUES (?, ?, ?, ?)`
-	args := []interface{}{s.MomentID, s.UserID, s.All, s.RecipientID}
+			   VALUES `
+	values := sSlice.values()
+	insert = insert + values
+	args := sSlice.args()
 
 	if _, err = db.Exec(insert, args...); err != nil {
 		return
@@ -174,66 +366,78 @@ func (s *SharesRow) create() (err error) {
 	return
 }
 
+func (sSlice *Shares) values() (values string) {
+	valuesSlice := make([]*string, len(sSlice))
+	for _, v := range valuesSlice {
+		v = "(?, ?, ?, ?)"
+	}
+	values = strings.Join(valuesSlice, ", ")
+	return
+}
+
+func (sSlice *Shares) args() (args []interface{}) {
+	SharesFieldCnt := 4
+	argsCnt := len(sSlice) * SharesFieldCnt
+	args = make([]interface{}, argsCnt)
+	for i := 0; i < args; i = i + 4 {
+		args[i] = sSlice[i].momentID
+		args[i+1] = sSlice[i].userID
+		args[i+2] = sSlice[i].all
+		args[i+3] = sSlice[i].recipientID
+	}
+
+	return
+}
+
 // Moment is the main resource of this package.
 // It is a grouping of the Content and Location structs.
 type MomentsRow struct {
-	Location
-	Content
-	ID         int
-	UserID     string
-	Finds      []*FindsRow
-	Public     bool
-	Hidden     bool
-	CreateDate time.Time
+	location
+	id         int
+	userID     string
+	public     bool
+	hidden     bool
+	createDate time.Time
 }
 
 func (m MomentsRow) String() string {
-	return fmt.Sprintf("ID: %v\n"+
-		"UserID: %v\n"+
-		"Location: %v\n"+
-		"Content: %v\n"+
-		"Public: %v\n"+
-		"Hidden: %v\n"+
-		"CreateDate: %v\n"+
-		"Finds: %v\n",
-		m.ID,
-		m.UserID,
-		m.Location,
-		m.Content,
-		m.Public,
-		m.Hidden,
-		m.CreateDate,
-		m.Finds)
+	return fmt.Sprintf("id: %v\n"+
+		"userID: %v\n"+
+		"location: %v\n"+
+		"content: %v\n"+
+		"public: %v\n"+
+		"hidden: %v\n"+
+		"createDate: %v\n"+
+		"finds: %v\n",
+		m.id,
+		m.userID,
+		m.location,
+		m.content,
+		m.public,
+		m.hidden,
+		m.createDate,
+		m.finds)
 }
 
 // Moment.leave creates a new moment in Moment-Db.
 // The moment content; type, message, and MediaDir are stored.
 // The moment is stored.
 // If the moment is not public, the leaves are stored.
-func (m *MomentsRow) create() (err error) {
+func (m *MomentsRow) insert() (momentID int, err error) {
 	db := openDbConn()
 	defer db.Close()
 
 	insert := `INSERT [moment].[Moments] ([UserID], [Latitude], [Longitude], [Public], [Hidden], [CreateDate])
-					 VALUES (?, ?, ?, ?, ?, ?)`
-	args := []interface{}{m.UserID, m.Latitude, m.Longitude, m.Public, m.Hidden, m.CreateDate}
+			   VALUES `
+	values := m.values()
+	insert = insert + values
+	args := m.args()
 
-	t, err := db.Begin()
+	res, err := db.Exec(insert, args...)
 	if err != nil {
 		return
 	}
-	defer func() {
-		if err != nil {
-			t.Rollback()
-			return
-		}
-		t.Commit()
-	}()
 
-	res, err := t.Exec(insert, args...)
-	if err != nil {
-		return
-	}
 	if err = validateRowsAffected(res, 1); err != nil {
 		return
 	}
@@ -243,41 +447,26 @@ func (m *MomentsRow) create() (err error) {
 		return
 	}
 	MomentID := int(lastID)
-	m.ID = MomentID
-
-	m.Content.MomentID = MomentID
-	if err = m.Content.create(t); err != nil {
-		return
-	}
-
-	if !m.Public {
-		for _, f := range *m.Finds {
-			f.MomentID = MomentID
-			if err = f.create(t); err != nil {
-				return
-			}
-		}
-	}
 
 	return
 }
 
-// Moment.find inserts a row.
-func (m *MomentsRow) find(u string) (err error) {
+func (m *MomentsRow) values() string {
+	return "(?, ?, ?, ?, ?, ?)"
+}
+
+func (m *MomentsRow) args() []interface{} {
+	return []interface{}{m.UserID, m.Latitude, m.Longitude, m.Public, m.Hidden, m.CreateDate}
+}
+
+func (m *MomentsRow) delete() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
-	f := &FindsRow{
-		MomentID: m.ID,
-		UserID:   u,
-		Found:    true,
-	}
+	deleteFrom := `DELETE FROM [moment].[Moments]
+				   WHERE ID = ?`
 
-	if err = f.create(db); err != nil {
-		return
-	}
-
-	return
+	res, err := db.Exec(deleteFrom, m.ID)
 }
 
 // searchPublic queries Moment-Db for moments that are public and not hidden.
@@ -426,7 +615,7 @@ func searchFound(u string) (ms []MomentsRow, err error) {
 	defer rows.Close()
 
 	m := new(MomentsRow)
-	f := make([]FindsRow, 1)
+	f := make([]*FindsRow, 1)
 	var createDate string
 	var findDate string
 	fieldAddrs := []interface{}{
@@ -453,7 +642,7 @@ func searchFound(u string) (ms []MomentsRow, err error) {
 		if err != nil {
 			return
 		}
-		m.Finds = &f
+		m.Finds = f
 		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
@@ -513,7 +702,7 @@ func searchLeft(u string) (ms []MomentsRow, err error) {
 			return
 		}
 
-		*m.Finds = append(*m.Finds, *f)
+		m.Finds = append(m.Finds, f)
 
 		if m.ID != prevID {
 			m.CreateDate, err = time.Parse(Datetime2, createDate)
@@ -604,6 +793,31 @@ func validateRowsAffected(res sql.Result, expected int) (err error) {
 	if rows != int64(expected) {
 		err = errors.New("db.Exec affected an unpredicted number of rows.")
 		return
+	}
+
+	return
+}
+
+const EmptyString = ""
+const EmptyInt = 0
+const EmptyFloat32 = 0.00
+
+func isset(iSlice ...[]interface{}) (err error) {
+	for j, i := range iSlice {
+		switch v := i.(type) {
+		case string:
+			if v == EmptyString {
+				return errors.New("Argument " + j + " passed in an empty string.")
+			}
+		case int:
+			if v == EmptyInt {
+				return errors.New("Argument " + j + " passed in an empty int.")
+			}
+		case float32:
+			if v == EmptyFloat32 {
+				return errors.New("Argument " + j + " passed in an empty int.")
+			}
+		}
 	}
 
 	return

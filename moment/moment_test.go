@@ -17,7 +17,48 @@ var userCnt = flag.Int("userCnt", 100, "The number of unique users to be created
 var momentCnt = flag.Int("momentCnt", 1000, "The number of moments to be created in Moment-Db for testing.")
 
 var users []string
-var moments []MomentsRow
+var moments []*MomentsRow
+
+type inserter interface {
+	insert() error
+}
+
+type testdata struct {
+	name  string
+	datatype []*inserter
+}
+
+func (t *testdata) insert() (err error) {
+	if err = t.datatype.insert(); err != nil {
+		
+	}
+}
+
+type momentsRow struct {
+	ID         int
+	Latitude   float32
+	Longitude  float32
+	UserID     string
+	Public     bool
+	Hidden     bool
+	CreateDate time.Time
+}
+
+func (m *momentsRow) insert() (err error) {
+	db := openDbConn()
+	defer db.Close()
+
+	query := `INSERT INTO [moment].[Moments] (Latitude, Longitude, UserID, [Public], [Hidden], CreateDate)
+			  VALUES `
+	values := m.values()
+	args := m.args()
+
+	if res, err := db.Exec(query, args...); err != nil {
+		return
+	}
+}
+
+func 
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -26,11 +67,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	fmt.Printf("moments[0]:\n%v\n", moments[0])
-
 	call := m.Run()
-
-	fmt.Printf("moments[0]:\n%v\n", moments[0])
 
 	if err := deleteDataTestDb(); err != nil {
 		panic(err)
@@ -39,35 +76,77 @@ func TestMain(m *testing.M) {
 	os.Exit(call)
 }
 
-func Test_Moment_leave(t *testing.T) {
-	for i, _ := range moments {
+func Test_MomentsRow_leave(t *testing.T) {
+	for i := 0; i < *momentCnt; i++ {
+		m := moments[i]
 
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			// t.Parallel()
-			if err := moments[i].create(); err != nil {
+			if err := m.create(); err != nil {
 				t.Error(err)
 			}
 		})
 	}
 }
 
-// func Test_Moment_share(t *testing.T) {
-// 	for i, m := range moments {
-// 		if m.Finds == nil {
-// 			continue
-// 		}
-// 		for j, v := range *m.Finds {
-// 			f := v
+func Test_MomentsRow_find(t *testing.T) {
+	for i, m := range moments {
+		if !m.Hidden || m.Finds == nil {
+			continue
+		}
+		for j, f := range m.Finds {
+			if !f.Found {
+				continue
+			}
 
-// 			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
-// 				t.Parallel()
-// 				if err := f.share(); err != nil {
-// 					t.Error(err)
-// 				}
-// 			})
-// 		}
-// 	}
-// }
+			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
+				if err := m.find(f.UserID); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+	}
+}
+
+func Test_FindsRow_find(t *testing.T) {
+
+	for i, m := range moments {
+		if m.Public || m.Finds == nil {
+			continue
+		}
+		for j, f := range m.Finds {
+			if !f.Found {
+				continue
+			}
+			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
+				if err := f.find(); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+	}
+}
+
+func Test_FindsRow_share(t *testing.T) {
+	for i, m := range moments {
+		if m.Finds == nil {
+			continue
+		}
+		for j, v := range m.Finds {
+			if !v.Found || v.Shares == nil {
+				continue
+			}
+			f := v
+
+			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
+				// t.Parallel()
+				if err := f.share(); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+	}
+}
 
 // func Test_findPublic(t *testing.T) {
 // 	t.Run("1", func(t *testing.T) {
@@ -250,35 +329,38 @@ func insertDataTestDb() (err error) {
 	}
 	fmt.Printf("Test Users Generated...\n\n")
 
-	moments = make([]MomentsRow, *momentCnt)
-	for i, _ := range moments {
+	moments = make([]*MomentsRow, *momentCnt)
+	for i := 0; i < *momentCnt; i++ {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		m := new(MomentsRow)
 
-		moments[i].UserID = users[i%*userCnt]
-		moments[i].CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
-		moments[i].Latitude = float32(r.Intn(180) - 90)
-		moments[i].Longitude = float32(r.Intn(360) - 180)
-		moments[i].Type = uint8(r.Intn(4))
-		moments[i].Message = "This message must be less than 256 characters. May adjust length restrictions."
+		m.UserID = users[i%*userCnt]
+		m.CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
+		m.Latitude = float32(r.Intn(180) - 90)
+		m.Longitude = float32(r.Intn(360) - 180)
+		m.Type = uint8(r.Intn(4))
+		m.Message = "This message must be less than 256 characters. May adjust length restrictions."
 
-		if moments[i].Type != DNE {
-			moments[i].MediaDir = "D:/mediaDir/"
+		if m.Type != DNE {
+			m.MediaDir = "D:/mediaDir/"
 		} else {
-			moments[i].MediaDir = ""
+			m.MediaDir = ""
 		}
 
-		moments[i].Public = (r.Intn(2) == 1)
-		if moments[i].Public {
-			moments[i].Hidden = (r.Intn(2) == 1)
+		m.Public = (r.Intn(2) == 1)
+		if m.Public {
+			m.Hidden = (r.Intn(2) == 1)
 		} else {
-			moments[i].Hidden = false
+			m.Hidden = false
 		}
 
-		if !moments[i].Public || (moments[i].Public && moments[i].Hidden) {
-			if err = generateFinds(&moments[i]); err != nil {
+		if !m.Public || (m.Public && m.Hidden) {
+			if err = generateFinds(m); err != nil {
 				return
 			}
 		}
+
+		moments[i] = m
 	}
 	fmt.Printf("Test Moments Generated...\n\n")
 
@@ -287,19 +369,24 @@ func insertDataTestDb() (err error) {
 
 func generateFinds(m *MomentsRow) (err error) {
 	rand.Seed(time.Now().UnixNano())
-	findCnt := rand.Intn(*userCnt)
+	findCnt := rand.Intn(*userCnt) + 1
 
-	finds := make([]FindsRow, findCnt)
+	m.Finds = make([]*FindsRow, findCnt)
 	for i := 0; i < findCnt; i++ {
-		finds[i].UserID = users[(findCnt+i)%*userCnt]
-		finds[i].Found = (rand.Intn(2) == 1)
-		finds[i].FindDate = m.CreateDate.AddDate(0, 0, rand.Intn(14))
+		f := new(FindsRow)
 
-		if err = generateShares(&finds[i]); err != nil {
-			return
+		f.UserID = users[(findCnt+i)%*userCnt]
+		f.Found = (rand.Intn(8) >= 1)
+		f.FindDate = m.CreateDate.AddDate(0, 0, rand.Intn(14))
+
+		if f.Found {
+			if err = generateShares(f); err != nil {
+				return
+			}
 		}
+
+		m.Finds[i] = f
 	}
-	m.Finds = &finds
 
 	return
 }
@@ -307,18 +394,41 @@ func generateFinds(m *MomentsRow) (err error) {
 func generateShares(f *FindsRow) (err error) {
 
 	rand.Seed(time.Now().UnixNano())
-	shareCnt := rand.Intn(*userCnt)
+	shareCnt := rand.Intn(*userCnt/3) + 1
+	userStart := rand.Intn(*userCnt)
 
-	shares := make([]SharesRow, shareCnt)
-	for j := 0; j < shareCnt; j++ {
-		shares[j].UserID = f.UserID
-		shares[j].All = (rand.Intn(2) == 1)
+	f.Shares = make([]*SharesRow, shareCnt)
+	for i := 0; i < shareCnt; i++ {
+		s := new(SharesRow)
 
-		if !shares[j].All {
-			shares[j].RecipientID = users[(shareCnt+j)%*userCnt]
+		s.UserID = f.UserID
+		s.All = (rand.Intn(2) == 1)
+
+		if !s.All {
+			s.RecipientID = users[(userStart+i)%*userCnt]
 		}
+		f.Shares[i] = s
 	}
-	f.Shares = &shares
+
+	return
+}
+
+func insertMomentMomentsData() (err error) {
+
+	return
+}
+
+func insertMomentMediaData() (err error) {
+
+	return
+}
+
+func insertMomentFindsData() (err error) {
+
+	return
+}
+
+func insertMomentSharesData() (err error) {
 
 	return
 }
