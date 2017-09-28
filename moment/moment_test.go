@@ -2,14 +2,14 @@ package moment
 
 import (
 	// "errors"
-	"fmt"
-	// "github.com/stretchr/testify/assert"
 	"flag"
-	"math/rand"
+	// "fmt"
+	"github.com/stretchr/testify/assert"
+	// "math/rand"
 	"os"
-	"strconv"
+	"strings"
 	"testing"
-	"testutil"
+	// "testutil"
 	"time"
 )
 
@@ -19,133 +19,207 @@ var momentCnt = flag.Int("momentCnt", 1000, "The number of moments to be created
 var users []string
 var moments []*MomentsRow
 
-type inserter interface {
-	insert() error
-}
-
-type testdata struct {
-	name  string
-	datatype []*inserter
-}
-
-func (t *testdata) insert() (err error) {
-	if err = t.datatype.insert(); err != nil {
-		
+func errorName(err error) (name string) {
+	if err == nil {
+		name = "nil error"
+	} else {
+		name = err.Error()
 	}
+	return
 }
-
-type momentsRow struct {
-	ID         int
-	Latitude   float32
-	Longitude  float32
-	UserID     string
-	Public     bool
-	Hidden     bool
-	CreateDate time.Time
-}
-
-func (m *momentsRow) insert() (err error) {
-	db := openDbConn()
-	defer db.Close()
-
-	query := `INSERT INTO [moment].[Moments] (Latitude, Longitude, UserID, [Public], [Hidden], CreateDate)
-			  VALUES `
-	values := m.values()
-	args := m.args()
-
-	if res, err := db.Exec(query, args...); err != nil {
-		return
-	}
-}
-
-func 
 
 func TestMain(m *testing.M) {
 	flag.Parse()
 
-	if err := insertDataTestDb(); err != nil {
-		panic(err)
-	}
-
 	call := m.Run()
-
-	if err := deleteDataTestDb(); err != nil {
-		panic(err)
-	}
 
 	os.Exit(call)
 }
 
-func Test_MomentsRow_leave(t *testing.T) {
-	for i := 0; i < *momentCnt; i++ {
-		m := moments[i]
+func TestValidateMomentID(t *testing.T) {
+	test := func(id int, expected error) {
 
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			// t.Parallel()
-			if err := m.create(); err != nil {
-				t.Error(err)
-			}
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateMomentID(id)
+			assert.Exactly(t, expected, err)
 		})
 	}
+
+	test(1, nil)
+	test(0, ErrorMomentID)
+	test(100, nil)
+	test(1000000, nil)
+
 }
 
-func Test_MomentsRow_find(t *testing.T) {
-	for i, m := range moments {
-		if !m.Hidden || m.Finds == nil {
-			continue
-		}
-		for j, f := range m.Finds {
-			if !f.Found {
-				continue
-			}
-
-			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
-				if err := m.find(f.UserID); err != nil {
-					t.Error(err)
-				}
-			})
-		}
+func TestValidateMediaType(t *testing.T) {
+	test := func(ty uint8, expected error) {
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateMediaType(ty)
+			assert.Exactly(t, expected, err)
+		})
 	}
+
+	test(0, nil)
+	test(1, nil)
+	test(2, nil)
+	test(3, nil)
+	test(4, ErrorMediaTypeDNE)
+	test(200, ErrorMediaTypeDNE)
 }
 
-func Test_FindsRow_find(t *testing.T) {
+func TestValidateUserID(t *testing.T) {
+	test := func(id string, expected error) {
 
-	for i, m := range moments {
-		if m.Public || m.Finds == nil {
-			continue
-		}
-		for j, f := range m.Finds {
-			if !f.Found {
-				continue
-			}
-			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
-				if err := f.find(); err != nil {
-					t.Error(err)
-				}
-			})
-		}
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateUserID(id)
+			assert.Exactly(t, expected, err)
+		})
 	}
+
+	test("user123", nil)
+	test("", ErrorUserIDEmpty)
+	test("user", ErrorUserIDShort)
+	test(strings.Repeat("c", maxUserChars), nil)
+	test(strings.Repeat("c", maxUserChars+1), ErrorUserIDLong)
 }
 
-func Test_FindsRow_share(t *testing.T) {
-	for i, m := range moments {
-		if m.Finds == nil {
-			continue
-		}
-		for j, v := range m.Finds {
-			if !v.Found || v.Shares == nil {
-				continue
-			}
-			f := v
+func TestValidateMediaMessage(t *testing.T) {
+	test := func(m string, expected error) {
 
-			t.Run(strconv.Itoa(i)+"_"+strconv.Itoa(j), func(t *testing.T) {
-				// t.Parallel()
-				if err := f.share(); err != nil {
-					t.Error(err)
-				}
-			})
-		}
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateMediaMessage(m)
+			assert.Exactly(t, expected, err)
+		})
 	}
+
+	test("", nil)
+	test("message", nil)
+	test(strings.Repeat("c", maxMessage), nil)
+	test(strings.Repeat("c", maxMessage+1), ErrorMediaMessageLong)
+}
+
+func TestValidateMediaDir(t *testing.T) {
+	test := func(ty uint8, d string, expected error) {
+
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateMediaDir(ty, d)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(0, "", nil)
+	test(0, "D:/Dir/", ErrorNoMediaTypeHasDir)
+	test(1, "", ErrorMediaTypeNoDir)
+	test(2, "", ErrorMediaTypeNoDir)
+	test(3, "", ErrorMediaTypeNoDir)
+	test(1, "D:/Dir/", nil)
+	test(2, "D:/Dir/", nil)
+	test(3, "D:/Dir/", nil)
+}
+
+func TestValidateFindDate(t *testing.T) {
+	test := func(f bool, fd *time.Time, expected error) {
+
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateFindDate(f, fd)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	fd := time.Now().UTC()
+	test(false, nil, nil)
+	test(false, &fd, ErrorFindDateWithFalseFound)
+	test(true, &fd, nil)
+	test(true, nil, ErrorFindDateDNEWithFound)
+}
+
+func TestValidateShareAll(t *testing.T) {
+	test := func(a bool, r string, expected error) {
+
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateShareAll(a, r)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(false, "user123", nil)
+	test(false, "", ErrorShareAllNoRecipients)
+	test(true, "", nil)
+	test(true, "user123", ErrorShareAllPublicWithRecipients)
+}
+
+func TestValidateLatitude(t *testing.T) {
+	test := func(l float32, expected error) {
+
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateLatitude(l)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(0, nil)
+	test(-180.00, nil)
+	test(-181.00, ErrorLatitude)
+	test(180.00, nil)
+	test(181.00, ErrorLatitude)
+}
+
+func TestValidateLongitude(t *testing.T) {
+	test := func(l float32, expected error) {
+
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateLongitude(l)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(0, nil)
+	test(-90, nil)
+	test(-91.00, ErrorLongitude)
+	test(90.00, nil)
+	test(91.00, ErrorLongitude)
+}
+
+func TestValidateLocation(t *testing.T) {
+	test := func(l *Location, expected error) {
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateLocation(l)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	l := &Location{
+		latitude:  0.00,
+		longitude: 0.00,
+	}
+	test(l, nil)
+	test(nil, ErrorLocationReference)
+}
+
+func TestValidateMomentPublicHidden(t *testing.T) {
+	test := func(p, h bool, expected error) {
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := validateMomentPublicHidden(p, h)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(false, false, nil)
+	test(false, true, ErrorPublicHiddenCombination)
+	test(true, false, nil)
+	test(true, true, nil)
 }
 
 // func Test_findPublic(t *testing.T) {
@@ -320,135 +394,135 @@ func Test_FindsRow_share(t *testing.T) {
 // }
 
 // =============================================================================
-func insertDataTestDb() (err error) {
-	fmt.Printf("Generate Moment Test Data...\n\n")
+// func insertDataTestDb() (err error) {
+// 	fmt.Printf("Generate Moment Test Data...\n\n")
 
-	users = make([]string, *userCnt)
-	for i, _ := range users {
-		users[i] = "User_" + strconv.Itoa(i)
-	}
-	fmt.Printf("Test Users Generated...\n\n")
+// 	users = make([]string, *userCnt)
+// 	for i, _ := range users {
+// 		users[i] = "User_" + strconv.Itoa(i)
+// 	}
+// 	fmt.Printf("Test Users Generated...\n\n")
 
-	moments = make([]*MomentsRow, *momentCnt)
-	for i := 0; i < *momentCnt; i++ {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		m := new(MomentsRow)
+// 	moments = make([]*MomentsRow, *momentCnt)
+// 	for i := 0; i < *momentCnt; i++ {
+// 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+// 		m := new(MomentsRow)
 
-		m.UserID = users[i%*userCnt]
-		m.CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
-		m.Latitude = float32(r.Intn(180) - 90)
-		m.Longitude = float32(r.Intn(360) - 180)
-		m.Type = uint8(r.Intn(4))
-		m.Message = "This message must be less than 256 characters. May adjust length restrictions."
+// 		m.UserID = users[i%*userCnt]
+// 		m.CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
+// 		m.Latitude = float32(r.Intn(180) - 90)
+// 		m.Longitude = float32(r.Intn(360) - 180)
+// 		m.Type = uint8(r.Intn(4))
+// 		m.Message = "This message must be less than 256 characters. May adjust length restrictions."
 
-		if m.Type != DNE {
-			m.MediaDir = "D:/mediaDir/"
-		} else {
-			m.MediaDir = ""
-		}
+// 		if m.Type != DNE {
+// 			m.MediaDir = "D:/mediaDir/"
+// 		} else {
+// 			m.MediaDir = ""
+// 		}
 
-		m.Public = (r.Intn(2) == 1)
-		if m.Public {
-			m.Hidden = (r.Intn(2) == 1)
-		} else {
-			m.Hidden = false
-		}
+// 		m.Public = (r.Intn(2) == 1)
+// 		if m.Public {
+// 			m.Hidden = (r.Intn(2) == 1)
+// 		} else {
+// 			m.Hidden = false
+// 		}
 
-		if !m.Public || (m.Public && m.Hidden) {
-			if err = generateFinds(m); err != nil {
-				return
-			}
-		}
+// 		if !m.Public || (m.Public && m.Hidden) {
+// 			if err = generateFinds(m); err != nil {
+// 				return
+// 			}
+// 		}
 
-		moments[i] = m
-	}
-	fmt.Printf("Test Moments Generated...\n\n")
+// 		moments[i] = m
+// 	}
+// 	fmt.Printf("Test Moments Generated...\n\n")
 
-	return
-}
+// 	return
+// }
 
-func generateFinds(m *MomentsRow) (err error) {
-	rand.Seed(time.Now().UnixNano())
-	findCnt := rand.Intn(*userCnt) + 1
+// func generateFinds(m *MomentsRow) (err error) {
+// 	rand.Seed(time.Now().UnixNano())
+// 	findCnt := rand.Intn(*userCnt) + 1
 
-	m.Finds = make([]*FindsRow, findCnt)
-	for i := 0; i < findCnt; i++ {
-		f := new(FindsRow)
+// 	m.Finds = make([]*FindsRow, findCnt)
+// 	for i := 0; i < findCnt; i++ {
+// 		f := new(FindsRow)
 
-		f.UserID = users[(findCnt+i)%*userCnt]
-		f.Found = (rand.Intn(8) >= 1)
-		f.FindDate = m.CreateDate.AddDate(0, 0, rand.Intn(14))
+// 		f.UserID = users[(findCnt+i)%*userCnt]
+// 		f.Found = (rand.Intn(8) >= 1)
+// 		f.FindDate = m.CreateDate.AddDate(0, 0, rand.Intn(14))
 
-		if f.Found {
-			if err = generateShares(f); err != nil {
-				return
-			}
-		}
+// 		if f.Found {
+// 			if err = generateShares(f); err != nil {
+// 				return
+// 			}
+// 		}
 
-		m.Finds[i] = f
-	}
+// 		m.Finds[i] = f
+// 	}
 
-	return
-}
+// 	return
+// }
 
-func generateShares(f *FindsRow) (err error) {
+// func generateShares(f *FindsRow) (err error) {
 
-	rand.Seed(time.Now().UnixNano())
-	shareCnt := rand.Intn(*userCnt/3) + 1
-	userStart := rand.Intn(*userCnt)
+// 	rand.Seed(time.Now().UnixNano())
+// 	shareCnt := rand.Intn(*userCnt/3) + 1
+// 	userStart := rand.Intn(*userCnt)
 
-	f.Shares = make([]*SharesRow, shareCnt)
-	for i := 0; i < shareCnt; i++ {
-		s := new(SharesRow)
+// 	f.Shares = make([]*SharesRow, shareCnt)
+// 	for i := 0; i < shareCnt; i++ {
+// 		s := new(SharesRow)
 
-		s.UserID = f.UserID
-		s.All = (rand.Intn(2) == 1)
+// 		s.UserID = f.UserID
+// 		s.All = (rand.Intn(2) == 1)
 
-		if !s.All {
-			s.RecipientID = users[(userStart+i)%*userCnt]
-		}
-		f.Shares[i] = s
-	}
+// 		if !s.All {
+// 			s.RecipientID = users[(userStart+i)%*userCnt]
+// 		}
+// 		f.Shares[i] = s
+// 	}
 
-	return
-}
+// 	return
+// }
 
-func insertMomentMomentsData() (err error) {
+// func insertMomentMomentsData() (err error) {
 
-	return
-}
+// 	return
+// }
 
-func insertMomentMediaData() (err error) {
+// func insertMomentMediaData() (err error) {
 
-	return
-}
+// 	return
+// }
 
-func insertMomentFindsData() (err error) {
+// func insertMomentFindsData() (err error) {
 
-	return
-}
+// 	return
+// }
 
-func insertMomentSharesData() (err error) {
+// func insertMomentSharesData() (err error) {
 
-	return
-}
+// 	return
+// }
 
-func deleteDataTestDb() (err error) {
-	if err = testutil.TruncateTable("moment.Moments"); err != nil {
-		return
-	}
-	if err = testutil.TruncateTable("moment.Media"); err != nil {
-		return
-	}
-	if err = testutil.TruncateTable("moment.Finds"); err != nil {
-		return
-	}
-	if err = testutil.TruncateTable("moment.Shares"); err != nil {
-		return
-	}
+// func deleteDataTestDb() (err error) {
+// 	if err = testutil.TruncateTable("moment.Moments"); err != nil {
+// 		return
+// 	}
+// 	if err = testutil.TruncateTable("moment.Media"); err != nil {
+// 		return
+// 	}
+// 	if err = testutil.TruncateTable("moment.Finds"); err != nil {
+// 		return
+// 	}
+// 	if err = testutil.TruncateTable("moment.Shares"); err != nil {
+// 		return
+// 	}
 
-	return
-}
+// 	return
+// }
 
 // // =============================================================================
 
