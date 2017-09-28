@@ -382,7 +382,7 @@ func (f *FindsRow) delete() (err error) {
 
 type Finds []*FindsRow
 
-func (fSet *Finds) insert(i interface{}) (err error) {
+func (fSet *Finds) insert() (err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -392,9 +392,11 @@ func (fSet *Finds) insert(i interface{}) (err error) {
 	insert = insert + values
 	args := fSet.args()
 
-	if _, err = db.Exec(insert, args...); err != nil {
-		return
-	}
+	fmt.Printf("insert: %v\n", insert)
+	fmt.Printf("\n\n")
+	fmt.Printf("args: %v\n", args)
+
+	_, err = db.Exec(insert, args...)
 
 	return
 }

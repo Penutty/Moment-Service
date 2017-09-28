@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	// "math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	// "testutil"
@@ -220,6 +221,31 @@ func TestValidateMomentPublicHidden(t *testing.T) {
 	test(false, true, ErrorPublicHiddenCombination)
 	test(true, false, nil)
 	test(true, true, nil)
+}
+
+func TestFindsInsertDelete(t *testing.T) {
+	var err error
+
+	fCnt := 10
+	fS := make(Finds, fCnt)
+
+	for i := 0; i < fCnt; i++ {
+		td := time.Now().UTC()
+		fS[i], err = NewFind(i+1, "user_0"+strconv.Itoa(i), true, &td)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	if err = fS.insert(); err != nil {
+		t.Error(err)
+	}
+
+	for _, f := range fS {
+		if err = f.delete(); err != nil {
+			t.Error(err)
+		}
+	}
 }
 
 // func Test_findPublic(t *testing.T) {
