@@ -1,11 +1,9 @@
 package moment
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/minus5/gofreetds"
-	"log"
+	"github.com/penutty/dba"
 	"strconv"
 	"strings"
 	"time"
@@ -273,24 +271,24 @@ func (m MediaRow) String() string {
 }
 
 func (m *MediaRow) delete() (err error) {
-	db := openDbConn()
-	defer db.Close()
+	c := dba.OpenConn()
+	defer c.Close()
 
 	deleteFrom := `DELETE FROM [moment].[Media]
 				   WHERE MomentID = ?
 				   		 AND Type = ?`
 	args := []interface{}{m.momentID, m.mType}
 
-	_, err = db.Exec(deleteFrom, args...)
+	_, err = c.Db.Exec(deleteFrom, args...)
 
 	return
 }
 
 type Media []*MediaRow
 
-func (mSet *Media) insert() (err error) {
-	db := openDbConn()
-	defer db.Close()
+func (mSet *Media) insert() (rowCnt int64, err error) {
+	c := dba.OpenConn()
+	defer c.Close()
 
 	query := `INSERT INTO [moment].[Media] (MomentID, Message, Type, Dir)
 			  VALUES `
@@ -298,7 +296,11 @@ func (mSet *Media) insert() (err error) {
 	query = query + values
 	args := mSet.args()
 
-	_, err = db.Exec(query, args...)
+	res, err := c.Db.Exec(query, args...)
+	if err != nil {
+		return
+	}
+	rowCnt, err = res.RowsAffected()
 
 	return
 }
@@ -346,8 +348,8 @@ func (f FindsRow) String() string {
 }
 
 func (f *FindsRow) find() (err error) {
-	db := openDbConn()
-	defer db.Close()
+	c := dba.OpenConn()
+	defer c.Close()
 
 	updateFindsRow := `UPDATE [moment].[Finds]
 					   SET Found = 1,
@@ -357,34 +359,35 @@ func (f *FindsRow) find() (err error) {
 
 	args := []interface{}{time.Now().UTC(), f.userID, f.momentID}
 
-	res, err := db.Exec(updateFindsRow, args...)
+	res, err := c.Db.Exec(updateFindsRow, args...)
 	if err != nil {
 		return
 	}
-	err = validateRowsAffected(res, 1)
+	err = dba.ValidateRowsAffected(res, 1)
 
 	return
 }
 
-func (f *FindsRow) delete() (err error) {
-	db := openDbConn()
-	defer db.Close()
+func (f *FindsRow) delete(c *dba.Trans) (rowsAff int, err error) {
+	dba.ValidateTx(c)
 
 	deleteFrom := `DELETE FROM [moment].[Finds]
 				   WHERE MomentID = ?
 				   		 AND UserID = ?`
 	args := []interface{}{f.momentID, f.userID}
 
-	_, err = db.Exec(deleteFrom, args...)
+	res, err := c.Tx.Exec(deleteFrom, args...)
+	aff, err := res.RowsAffected()
+	rowsAff = int(aff)
 
 	return
 }
 
 type Finds []*FindsRow
 
-func (fSet *Finds) insert() (err error) {
-	db := openDbConn()
-	defer db.Close()
+func (fSet *Finds) insert() (rowCnt int, err error) {
+	c := dba.OpenConn()
+	defer c.Close()
 
 	insert := `INSERT [moment].[Finds] (MomentID, UserID, Found, FindDate)
 			   VALUES `
@@ -392,11 +395,12 @@ func (fSet *Finds) insert() (err error) {
 	insert = insert + values
 	args := fSet.args()
 
-	fmt.Printf("insert: %v\n", insert)
-	fmt.Printf("\n\n")
-	fmt.Printf("args: %v\n", args)
-
-	_, err = db.Exec(insert, args...)
+	res, err := c.Db.Exec(insert, args...)
+	if err != nil {
+		return
+	}
+	cnt, err := res.RowsAffected()
+	rowCnt = int(cnt)
 
 	return
 }
@@ -427,6 +431,23 @@ func (fSet *Finds) args() (args []interface{}) {
 	return
 }
 
+func (fSet *Finds) delete() (rowCnt int, err error) {
+	c := dba.OpenTx()
+	defer c.Close()(err)
+
+	var rAff int
+	for _, f := range *fSet {
+		rAff, err = f.delete(c)
+		if err != nil {
+			rowCnt = 0
+			return
+		}
+		rowCnt += rAff
+	}
+
+	return
+}
+
 type SharesRow struct {
 	momentID    int
 	userID      string
@@ -446,9 +467,8 @@ func (s SharesRow) String() string {
 		s.recipientID)
 }
 
-func (s *SharesRow) delete() (err error) {
-	db := openDbConn()
-	defer db.Close()
+func (s *SharesRow) delete(c *dba.Trans) (err error) {
+	dba.ValidateTx(c)
 
 	deleteFrom := `DELETE FROM [moment].[Shares]
 				   WHERE MomentID = ?
@@ -456,17 +476,16 @@ func (s *SharesRow) delete() (err error) {
 				   		 AND RecipientID = ?`
 	args := []interface{}{s.momentID, s.userID, s.recipientID}
 
-	_, err = db.Exec(deleteFrom, args...)
+	_, err = c.Tx.Exec(deleteFrom, args...)
 
 	return
 }
 
 type Shares []*SharesRow
 
-func (sSlice *Shares) insert() (err error) {
-
-	db := openDbConn()
-	defer db.Close()
+func (sSlice *Shares) insert() (rowCnt int64, err error) {
+	c := dba.OpenConn()
+	defer c.Close()
 
 	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, [All], RecipientID)
 			   VALUES `
@@ -474,9 +493,11 @@ func (sSlice *Shares) insert() (err error) {
 	insert = insert + values
 	args := sSlice.args()
 
-	if _, err = db.Exec(insert, args...); err != nil {
+	res, err := c.Db.Exec(insert, args...)
+	if err != nil {
 		return
 	}
+	rowCnt, err = res.RowsAffected()
 
 	return
 }
@@ -501,6 +522,19 @@ func (sSlice *Shares) args() (args []interface{}) {
 		args[j+1] = s.userID
 		args[j+2] = s.all
 		args[j+3] = s.recipientID
+	}
+
+	return
+}
+
+func (sSlice *Shares) delete() (rowCnt int, err error) {
+	c := dba.OpenTx()
+	defer c.Close()
+
+	for _, s := range *sSlice {
+		if err = s.delete(c); err != nil {
+			return
+		}
 	}
 
 	return
@@ -558,8 +592,8 @@ func (m MomentsRow) String() string {
 // The moment is stored.
 // If the moment is not public, the leaves are stored.
 func (m *MomentsRow) insert() (momentID int, err error) {
-	db := openDbConn()
-	defer db.Close()
+	c := dba.OpenConn()
+	defer c.Close()
 
 	insert := `INSERT [moment].[Moments] ([UserID], [Latitude], [Longitude], [Public], [Hidden], [CreateDate])
 			   VALUES `
@@ -567,12 +601,12 @@ func (m *MomentsRow) insert() (momentID int, err error) {
 	insert = insert + values
 	args := m.args()
 
-	res, err := db.Exec(insert, args...)
+	res, err := c.Db.Exec(insert, args...)
 	if err != nil {
 		return
 	}
 
-	if err = validateRowsAffected(res, 1); err != nil {
+	if err = dba.ValidateRowsAffected(res, 1); err != nil {
 		return
 	}
 
@@ -594,13 +628,13 @@ func (m *MomentsRow) args() []interface{} {
 }
 
 func (m *MomentsRow) delete() (err error) {
-	db := openDbConn()
-	defer db.Close()
+	c := dba.OpenConn()
+	defer c.Close()
 
 	deleteFrom := `DELETE FROM [moment].[Moments]
 				   WHERE ID = ?`
 
-	_, err = db.Exec(deleteFrom, m.id)
+	_, err = c.Db.Exec(deleteFrom, m.id)
 
 	return
 }
@@ -904,32 +938,6 @@ func (m *MomentsRow) delete() (err error) {
 // sake of simplicity and readability.
 //
 
-// openDbConn is a wrapper for sql.Open() with logging.
-func openDbConn() *sql.DB {
-	driver := "mssql"
-	connStr := "Server=192.168.1.4:1433;Database=Moment-Db;User Id=Reader;Password=123"
-
-	dbConn, err := sql.Open(driver, connStr)
-	if err != nil {
-		log.Fatal(ConnStrFailed)
-	}
-
-	return dbConn
-}
-
 // validateDbExecResult compares the number of records modified by the Exec
 // to the expected number of records expected to have been modified.
 // Function errors on actual and expected not being equal.
-func validateRowsAffected(res sql.Result, expected int) (err error) {
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return
-	}
-
-	if rows != int64(expected) {
-		err = errors.New("db.Exec affected an unpredicted number of rows.")
-		return
-	}
-
-	return
-}

@@ -224,28 +224,81 @@ func TestValidateMomentPublicHidden(t *testing.T) {
 }
 
 func TestFindsInsertDelete(t *testing.T) {
-	var err error
 
 	fCnt := 10
-	fS := make(Finds, fCnt)
+	fS := newFinds(t, fCnt)
 
-	for i := 0; i < fCnt; i++ {
-		td := time.Now().UTC()
-		fS[i], err = NewFind(i+1, "user_0"+strconv.Itoa(i), true, &td)
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := fS.insert()
 		if err != nil {
 			t.Error(err)
 		}
-	}
+		assert.Equal(t, fCnt, cnt)
+	})
 
-	if err = fS.insert(); err != nil {
-		t.Error(err)
-	}
+	cnt := findsDelete(t, fS)
+	assert.Equal(t, fCnt, cnt)
+}
 
-	for _, f := range fS {
-		if err = f.delete(); err != nil {
+func TestFindsDelete(t *testing.T) {
+	fCnt := 10
+	fS := newFinds(t, fCnt)
+
+	cnt := findsDelete(t, fS)
+	assert.Empty(t, cnt)
+}
+
+func TestFindsInsert(t *testing.T) {
+	fCnt := 10
+	fS := newFinds(t, fCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := fS.insert()
+		if err != nil {
 			t.Error(err)
 		}
-	}
+		assert.Equal(t, fCnt, cnt)
+	})
+
+	fCnt = 20
+	fS = newFinds(t, fCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := fS.insert()
+		assert.Empty(t, cnt)
+		assert.Error(t, err)
+	})
+
+	cnt := findsDelete(t, fS)
+	assert.Equal(t, 10, cnt)
+}
+
+func newFinds(t *testing.T, fCnt int) (fS Finds) {
+	fS = make(Finds, fCnt)
+
+	var err error
+	t.Run("NewFinds", func(t *testing.T) {
+		for i := 0; i < fCnt; i++ {
+			td := time.Now().UTC()
+			fS[i], err = NewFind(i+1, "user_0"+strconv.Itoa(i), true, &td)
+			if err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	return
+}
+
+func findsDelete(t *testing.T, fS Finds) (cnt int) {
+	var err error
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err = fS.delete()
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	return
 }
 
 // func Test_findPublic(t *testing.T) {
