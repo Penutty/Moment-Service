@@ -236,16 +236,22 @@ func TestFindsInsertDelete(t *testing.T) {
 		assert.Equal(t, fCnt, cnt)
 	})
 
-	cnt := findsDelete(t, fS)
-	assert.Equal(t, fCnt, cnt)
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := fS.delete()
+		assert.Nil(t, err)
+		assert.Equal(t, fCnt, cnt)
+	})
 }
 
 func TestFindsDelete(t *testing.T) {
 	fCnt := 10
 	fS := newFinds(t, fCnt)
 
-	cnt := findsDelete(t, fS)
-	assert.Empty(t, cnt)
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := fS.delete()
+		assert.Nil(t, err)
+		assert.Empty(t, cnt)
+	})
 }
 
 func TestFindsInsert(t *testing.T) {
@@ -260,8 +266,8 @@ func TestFindsInsert(t *testing.T) {
 		assert.Equal(t, fCnt, cnt)
 	})
 
-	fCnt = 20
-	fS = newFinds(t, fCnt)
+	dupCnt := 20
+	fS = newFinds(t, dupCnt)
 
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := fS.insert()
@@ -269,8 +275,11 @@ func TestFindsInsert(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	cnt := findsDelete(t, fS)
-	assert.Equal(t, 10, cnt)
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := fS.delete()
+		assert.Nil(t, err)
+		assert.Equal(t, fCnt, cnt)
+	})
 }
 
 func newFinds(t *testing.T, fCnt int) (fS Finds) {
@@ -289,16 +298,122 @@ func newFinds(t *testing.T, fCnt int) (fS Finds) {
 	return
 }
 
-func findsDelete(t *testing.T, fS Finds) (cnt int) {
-	var err error
+func TestSharesInsertDelete(t *testing.T) {
+	sCnt := 10
+	sS := newShares(t, sCnt)
 
-	t.Run("delete", func(t *testing.T) {
-		cnt, err = fS.delete()
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := sS.insert()
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, sCnt, cnt)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := sS.delete()
+		assert.Empty(t, err)
+		assert.Equal(t, sCnt, cnt)
+	})
+}
+
+func TestSharesDelete(t *testing.T) {
+	sCnt := 10
+	sS := newShares(t, sCnt)
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := sS.delete()
+		assert.Empty(t, cnt)
+		assert.Nil(t, err)
+	})
+}
+
+func TestSharesInsert(t *testing.T) {
+	sCnt := 10
+	sS := newShares(t, sCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := sS.insert()
+		assert.Nil(t, err)
+		assert.Equal(t, sCnt, cnt)
+	})
+
+	dupCnt := 20
+	sS = newShares(t, dupCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := sS.insert()
+		assert.Empty(t, cnt)
+		assert.Error(t, err)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := sS.delete()
+		assert.Nil(t, err)
+		assert.Equal(t, sCnt, cnt)
+	})
+}
+
+func newShares(t *testing.T, sCnt int) (sS Shares) {
+	sS = make(Shares, sCnt)
+
+	var err error
+	t.Run("NewShares", func(t *testing.T) {
+		for i := 0; i < sCnt; i++ {
+			sS[i], err = NewShare(i+1, "user_0"+strconv.Itoa(i), false, "user_1"+strconv.Itoa(i))
+			if err != nil {
+				t.Error(err)
+			}
+		}
 	})
 	return
+}
+
+func TestMediaInsertDelete(t *testing.T) {
+	mCnt := 10
+	mS := newMedia(t, mCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := mS.insert()
+		assert.Equal(t, mCnt, cnt)
+		assert.Nil(t, err)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := mS.delete()
+		assert.Equal(t, mCnt, cnt)
+		assert.Nil(t, err)
+	})
+}
+
+func newMedia(t *testing.T, mCnt int) (mS Media) {
+	mS = make(Media, mCnt)
+
+	var err error
+	t.Run("NewMedia", func(t *testing.T) {
+		for i := 0; i < mCnt; i++ {
+			mS[i], err = NewMedia(i+1, "message_0"+strconv.Itoa(i), 0, "")
+			assert.Nil(t, err, err)
+		}
+	})
+	return
+}
+
+func TestMediaRowDelete(t *testing.T) {
+	mCnt := 1
+	mS := newMedia(t, mCnt)
+
+	t.Run("insert", func(t *testing.T) {
+		cnt, err := mS.insert()
+		assert.Equal(t, mCnt, cnt)
+		assert.Nil(t, err)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		cnt, err := mS[0].delete(nil)
+		assert.Equal(t, mCnt, cnt)
+		assert.Nil(t, err)
+	})
 }
 
 // func Test_findPublic(t *testing.T) {

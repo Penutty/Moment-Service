@@ -35,6 +35,8 @@ const (
 var InterfaceTypeNotRecognized = errors.New("The type switch does not recognize the interface type.")
 var ConnStrFailed = errors.New("Connection to Moment-Db failed.")
 
+var ErrorNoTransactionNotNil = errors.New("Invalid type passed to function. Expected *dba.Trans or nil.")
+
 func check(err error) {
 	if err != nil {
 		panic(err)
@@ -270,25 +272,40 @@ func (m MediaRow) String() string {
 	return fmt.Sprintf("momentID: %v\nmType: %v\nmessage: %v\ndir: %v\n", m.momentID, m.mType, m.message, m.dir)
 }
 
-func (m *MediaRow) delete() (err error) {
-	c := dba.OpenConn()
-	defer c.Close()
+func (m *MediaRow) delete(i interface{}) (rowCnt int, err error) {
+
+	c := new(dba.Trans)
+	switch v := i.(type) {
+	case nil:
+		c = dba.OpenTx()
+		defer func() { c.Close(err) }()
+	case *dba.Trans:
+		c = v
+	default:
+		err = ErrorNoTransactionNotNil
+	}
 
 	deleteFrom := `DELETE FROM [moment].[Media]
 				   WHERE MomentID = ?
 				   		 AND Type = ?`
 	args := []interface{}{m.momentID, m.mType}
 
-	_, err = c.Db.Exec(deleteFrom, args...)
+	res, err := c.Tx.Exec(deleteFrom, args...)
+	if err != nil {
+		return
+	}
+
+	cnt, err := res.RowsAffected()
+	rowCnt = int(cnt)
 
 	return
 }
 
 type Media []*MediaRow
 
-func (mSet *Media) insert() (rowCnt int64, err error) {
+func (mSet *Media) insert() (rowCnt int, err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	query := `INSERT INTO [moment].[Media] (MomentID, Message, Type, Dir)
 			  VALUES `
@@ -300,7 +317,8 @@ func (mSet *Media) insert() (rowCnt int64, err error) {
 	if err != nil {
 		return
 	}
-	rowCnt, err = res.RowsAffected()
+	cnt, err := res.RowsAffected()
+	rowCnt = int(cnt)
 
 	return
 }
@@ -329,6 +347,23 @@ func (mSet *Media) args() (args []interface{}) {
 	return
 }
 
+func (mSet *Media) delete() (rowCnt int, err error) {
+	c := dba.OpenTx()
+	defer func() { c.Close(err) }()
+
+	var affCnt int
+	for _, m := range *mSet {
+		affCnt, err = m.delete(c)
+		if err != nil {
+			rowCnt = 0
+			return
+		}
+		rowCnt += affCnt
+	}
+
+	return
+}
+
 type FindsRow struct {
 	momentID int
 	userID   string
@@ -349,7 +384,7 @@ func (f FindsRow) String() string {
 
 func (f *FindsRow) find() (err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	updateFindsRow := `UPDATE [moment].[Finds]
 					   SET Found = 1,
@@ -369,7 +404,6 @@ func (f *FindsRow) find() (err error) {
 }
 
 func (f *FindsRow) delete(c *dba.Trans) (rowsAff int, err error) {
-	dba.ValidateTx(c)
 
 	deleteFrom := `DELETE FROM [moment].[Finds]
 				   WHERE MomentID = ?
@@ -387,7 +421,7 @@ type Finds []*FindsRow
 
 func (fSet *Finds) insert() (rowCnt int, err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	insert := `INSERT [moment].[Finds] (MomentID, UserID, Found, FindDate)
 			   VALUES `
@@ -433,7 +467,7 @@ func (fSet *Finds) args() (args []interface{}) {
 
 func (fSet *Finds) delete() (rowCnt int, err error) {
 	c := dba.OpenTx()
-	defer c.Close()(err)
+	defer func() { c.Close(err) }()
 
 	var rAff int
 	for _, f := range *fSet {
@@ -467,8 +501,18 @@ func (s SharesRow) String() string {
 		s.recipientID)
 }
 
-func (s *SharesRow) delete(c *dba.Trans) (err error) {
-	dba.ValidateTx(c)
+func (s *SharesRow) delete(i interface{}) (affCnt int, err error) {
+
+	c := new(dba.Trans)
+	switch v := i.(type) {
+	case nil:
+		c = dba.OpenTx()
+		defer func() { c.Close(err) }()
+	case *dba.Trans:
+		c = v
+	default:
+		err = ErrorNoTransactionNotNil
+	}
 
 	deleteFrom := `DELETE FROM [moment].[Shares]
 				   WHERE MomentID = ?
@@ -476,16 +520,25 @@ func (s *SharesRow) delete(c *dba.Trans) (err error) {
 				   		 AND RecipientID = ?`
 	args := []interface{}{s.momentID, s.userID, s.recipientID}
 
-	_, err = c.Tx.Exec(deleteFrom, args...)
+	res, err := c.Tx.Exec(deleteFrom, args...)
+	if err != nil {
+		return
+	}
+
+	cnt, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+	affCnt = int(cnt)
 
 	return
 }
 
 type Shares []*SharesRow
 
-func (sSlice *Shares) insert() (rowCnt int64, err error) {
+func (sSlice *Shares) insert() (rowCnt int, err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, [All], RecipientID)
 			   VALUES `
@@ -497,7 +550,11 @@ func (sSlice *Shares) insert() (rowCnt int64, err error) {
 	if err != nil {
 		return
 	}
-	rowCnt, err = res.RowsAffected()
+	cnt, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+	rowCnt = int(cnt)
 
 	return
 }
@@ -529,14 +586,17 @@ func (sSlice *Shares) args() (args []interface{}) {
 
 func (sSlice *Shares) delete() (rowCnt int, err error) {
 	c := dba.OpenTx()
-	defer c.Close()
+	defer func() { c.Close(err) }()
 
+	var affCnt int
 	for _, s := range *sSlice {
-		if err = s.delete(c); err != nil {
+		affCnt, err = s.delete(c)
+		if err != nil {
+			rowCnt = 0
 			return
 		}
+		rowCnt += affCnt
 	}
-
 	return
 }
 
@@ -593,7 +653,7 @@ func (m MomentsRow) String() string {
 // If the moment is not public, the leaves are stored.
 func (m *MomentsRow) insert() (momentID int, err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	insert := `INSERT [moment].[Moments] ([UserID], [Latitude], [Longitude], [Public], [Hidden], [CreateDate])
 			   VALUES `
@@ -629,7 +689,7 @@ func (m *MomentsRow) args() []interface{} {
 
 func (m *MomentsRow) delete() (err error) {
 	c := dba.OpenConn()
-	defer c.Close()
+	defer c.Db.Close()
 
 	deleteFrom := `DELETE FROM [moment].[Moments]
 				   WHERE ID = ?`
