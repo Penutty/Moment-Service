@@ -48,21 +48,36 @@ func check(err error) {
 
 var ErrorMomentID = errors.New("*id must be >= 1.")
 
-// validateMomentID ensures id is not less than 1.
-func validateMomentID(id int) (err error) {
+// setMomentID ensures id is not less than 1.
+func (m *MomentsRow) setMomentID(id int) (err error) {
+	if err = checkMomentID(id); err != nil {
+		return err
+	}
+	m.id = id
+	return
+}
+
+func checkMomentID(id int) (err error) {
 	if id < 1 {
-		err = ErrorMomentID
+		return ErrorMomentID
 	}
 	return
 }
 
 var ErrorMediaTypeDNE = errors.New("*t must be >= " + strconv.Itoa(minMediaType) + " AND <= " + strconv.Itoa(maxMediaType))
 
-// validateMediaType ensures that t is a value between minMediaType and maxMediaType.
-func validateMediaType(t uint8) (err error) {
+// setMediaType ensures that t is a value between minMediaType and maxMediaType.
+func (m *MediaRow) setMediaType(t uint8) (err error) {
+	if err = checkMediaType(t); err != nil {
+		return err
+	}
+	m.mType = t
+	return
+}
 
+func checkMediaType(t uint8) (err error) {
 	if t > maxMediaType {
-		err = ErrorMediaTypeDNE
+		return ErrorMediaTypeDNE
 	}
 	return
 }
@@ -74,38 +89,71 @@ var (
 )
 
 // validateUserID ensures that the length of id is not less than minUserChars and not greater than maxUserChars.
-func validateUserID(id string) (err error) {
-	l := len(id)
-
-	switch {
-	case l < minUserChars:
-		err = ErrorUserIDShort
-	case l > maxUserChars:
-		err = ErrorUserIDLong
+func (m *MomentsRow) setUserID(id string) (err error) {
+	if err = checkUserID(id); err != nil {
+		return
 	}
+	m.userID = id
 
 	return
 }
 
-// validateRecipientID ensures that the length of id is not greater than maxUserChars.
-func validateRecipientID(id string) (err error) {
-	l := len(id)
-
-	switch {
-	case l > maxUserChars:
-		err = ErrorUserIDLong
+func (f *FindsRow) setUserID(id string) (err error) {
+	if err = checkUserID(id); err != nil {
+		return
 	}
+	f.userID = id
+	return
+}
 
+func (s *SharesRow) setUserID(id string) (err error) {
+	if err = checkUserID(id); err != nil {
+		return
+	}
+	s.userID = id
+	return
+}
+
+func (s *SharesRow) setRecipientID(id string) (err error) {
+	if err = checkUserIDLong(id); err != nil {
+		return
+	}
+	s.recipientID = id
+	return
+}
+
+func checkUserID(id string) (err error) {
+	if err = checkUserIDLong(id); err != nil {
+		return
+	}
+	if err = checkUserIDShort(id); err != nil {
+		return
+	}
+	return
+}
+
+func checkUserIDLong(id string) (err error) {
+	if l := len(id); l > maxUserChars {
+		return ErrorUserIDLong
+	}
+	return
+}
+
+func checkUserIDShort(id string) (err error) {
+	if l := len(id); l < minUserChars {
+		return ErrorUserIDShort
+	}
 	return
 }
 
 var ErrorMediaMessageLong = errors.New("m must be >= " + strconv.Itoa(minMessage) + " AND <= " + strconv.Itoa(maxMessage) + ".")
 
 // validateMediaMessage ensures that the length of m is not greater than 256 characters.
-func validateMediaMessage(m string) (err error) {
+func (mr *MediaRow) setMediaMessage(m string) (err error) {
 	if len(m) > 256 {
-		err = ErrorMediaMessageLong
+		return ErrorMediaMessageLong
 	}
+	mr.message = m
 	return
 }
 
@@ -115,13 +163,11 @@ var (
 )
 
 // validateMediaDir ensures that d only exists if mType is greater than 0.
-func validateMediaDir(mType uint8, d string) (err error) {
-	switch {
-	case mType == 0 && d != "":
-		err = ErrorNoMediaTypeHasDir
-	case mType > 0 && mType < 4 && d == "":
-		err = ErrorMediaTypeNoDir
+func (m *MediaRow) setDir(d string) (err error) {
+	if m.mType == DNE {
+		return ErrorNoMediaTypeHasDir
 	}
+	m.dir = d
 	return
 }
 
@@ -726,8 +772,24 @@ func (m MomentsRow) String() string {
 		m.createDate)
 }
 
+var ErrorMediaPointerNil = errors.New("md *Media is nil.")
+
 // CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
 func (m *MomentsRow) CreatePublic(md *Media) (err error) {
+	if md == nil {
+		return ErrorMediaPointerNil
+	}
+
+	c := dba.OpenTx()
+	defer func() { c.Close(err) }()
+
+	mID, err = m.insert(c)
+	md.MomentsID
+
+	_, err = md.insert(c)
+	if err != nil {
+
+	}
 
 	return
 }
