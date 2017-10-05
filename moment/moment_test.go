@@ -3,7 +3,6 @@ package moment
 import (
 	// "errors"
 	"flag"
-	// "fmt"
 	"github.com/stretchr/testify/assert"
 	// "math/rand"
 	"os"
@@ -93,149 +92,109 @@ func TestCheckUserID(t *testing.T) {
 	}
 
 	test("user123", nil)
-	test("", ErrorUserIDEmpty)
+	test("", ErrorUserIDShort)
 	test("user", ErrorUserIDShort)
 	test(strings.Repeat("c", maxUserChars), nil)
 	test(strings.Repeat("c", maxUserChars+1), ErrorUserIDLong)
 }
 
-func TestCheckMediaMessage(t *testing.T) {
-	test := func(m string, expected error) {
+func TestNewLocation(t *testing.T) {
+	test := func(lat float32, long float32, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := checkMediaMessage(m)
+			_, err := NewLocation(lat, long)
 			assert.Exactly(t, expected, err)
 		})
 	}
 
-	test("", nil)
-	test("message", nil)
-	test(strings.Repeat("c", maxMessage), nil)
-	test(strings.Repeat("c", maxMessage+1), ErrorMediaMessageLong)
+	test(0, 0, nil)
+	test(minLat, 0, nil)
+	test(minLat-1, 0, ErrorLatitude)
+	test(maxLat, 0, nil)
+	test(maxLat+1, 0, ErrorLatitude)
+	test(0, minLong, nil)
+	test(0, minLong-1, ErrorLongitude)
+	test(0, maxLong, nil)
+	test(0, maxLong+1, ErrorLongitude)
 }
 
-func TestCheckMediaDir(t *testing.T) {
-	test := func(ty uint8, d string, expected error) {
+func TestNewMedia(t *testing.T) {
+	test := func(mID int64, m string, mType uint8, d string, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := checkMediaDir(ty, d)
+			_, err := NewMedia(mID, m, mType, d)
 			assert.Exactly(t, expected, err)
 		})
 	}
 
-	test(0, "", nil)
-	test(0, "D:/Dir/", ErrorNoMediaTypeHasDir)
-	test(1, "", ErrorMediaTypeNoDir)
-	test(2, "", ErrorMediaTypeNoDir)
-	test(3, "", ErrorMediaTypeNoDir)
-	test(1, "D:/Dir/", nil)
-	test(2, "D:/Dir/", nil)
-	test(3, "D:/Dir/", nil)
+	test(1, "message", DNE, "", nil)
+	test(1, strings.Repeat("c", maxMessage), DNE, "", nil)
+	test(1, strings.Repeat("c", maxMessage+1), DNE, "", ErrorMessageLong)
+	test(1, "message", DNE, "D:/dir/", ErrorMediaDNE)
+	test(1, "message", Image, "D:/dir/", nil)
+	test(1, "message", Image, "", ErrorMediaExistsDirDNE)
 }
 
-func TestCheckTime(t *testing.T) {
-	test := func(f bool, fd *time.Time, expected error) {
+func TestNewFind(t *testing.T) {
+	test := func(mID int64, uID string, f bool, fd *time.Time, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := checkTime(f, fd)
+			_, err := NewFind(mID, uID, f, fd)
 			assert.Exactly(t, expected, err)
 		})
 	}
 
 	fd := time.Now().UTC()
-	test(false, nil, nil)
-	test(false, &fd, ErrorFindDateWithFalseFound)
-	test(true, &fd, nil)
-	test(true, nil, ErrorFindDateDNEWithFound)
+	test(1, "user_01", true, &fd, nil)
+	test(1, "user_01", true, &time.Time{}, ErrorFoundEmptyFindDate)
+	test(1, "user_01", false, &time.Time{}, nil)
+	test(1, "user_01", false, &fd, ErrorNotFoundFindDateExists)
 }
 
-func TestValidateShareAll(t *testing.T) {
-	test := func(a bool, r string, expected error) {
+func TestNewShare(t *testing.T) {
+	test := func(mID int64, uID string, all bool, r string, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateShareAll(a, r)
+			_, err := NewShare(mID, uID, all, r)
 			assert.Exactly(t, expected, err)
 		})
 	}
 
-	test(false, "user123", nil)
-	test(false, "", ErrorShareAllNoRecipients)
-	test(true, "", nil)
-	test(true, "user123", ErrorShareAllPublicWithRecipients)
+	test(1, "user_01", false, "user_02", nil)
+	test(1, "user_01", true, "user_02", ErrorAllRecipientExists)
+	test(1, "user_01", true, "", nil)
+	test(1, "user_01", false, "", ErrorNotAllRecipientDNE)
 }
+func TestNewMoment(t *testing.T) {
 
-func TestValidateLatitude(t *testing.T) {
-	test := func(l float32, expected error) {
+	test := func(l *Location, uID string, p bool, h bool, c *time.Time, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateLatitude(l)
+			_, err := NewMoment(l, uID, p, h, c)
 			assert.Exactly(t, expected, err)
 		})
 	}
 
-	test(0, nil)
-	test(-180.00, nil)
-	test(-181.00, ErrorLatitude)
-	test(180.00, nil)
-	test(181.00, ErrorLatitude)
+	lo, _ := NewLocation(0.00, 0.00)
+	cd := time.Now().UTC()
+
+	test(lo, "user_01", true, false, &cd, nil)
+	test(nil, "user_01", true, false, &cd, ErrorLocationIsNil)
+	test(lo, "user_01", true, true, &cd, nil)
+	test(lo, "user_01", false, false, &cd, nil)
+	test(lo, "user_01", false, true, &cd, ErrorPrivateHiddenMoment)
 }
 
-func TestValidateLongitude(t *testing.T) {
-	test := func(l float32, expected error) {
-
-		name := errorName(expected)
-		t.Run(name, func(t *testing.T) {
-			err := validateLongitude(l)
-			assert.Exactly(t, expected, err)
-		})
-	}
-
-	test(0, nil)
-	test(-90, nil)
-	test(-91.00, ErrorLongitude)
-	test(90.00, nil)
-	test(91.00, ErrorLongitude)
-}
-
-func TestValidateLocation(t *testing.T) {
-	test := func(l *Location, expected error) {
-		name := errorName(expected)
-		t.Run(name, func(t *testing.T) {
-			err := validateLocation(l)
-			assert.Exactly(t, expected, err)
-		})
-	}
-
-	l := &Location{
-		latitude:  0.00,
-		longitude: 0.00,
-	}
-	test(l, nil)
-	test(nil, ErrorLocationReference)
-}
-
-func TestValidateMomentPublicHidden(t *testing.T) {
-	test := func(p, h bool, expected error) {
-		name := errorName(expected)
-		t.Run(name, func(t *testing.T) {
-			err := validateMomentPublicHidden(p, h)
-			assert.Exactly(t, expected, err)
-		})
-	}
-
-	test(false, false, nil)
-	test(false, true, ErrorPublicHiddenCombination)
-	test(true, false, nil)
-	test(true, true, nil)
-}
-
-var start int = 1
-var length int = 500
+const (
+	single int = 1
+	start  int = 1
+	length int = 500
+)
 
 func TestFindsInsertDelete(t *testing.T) {
 	fS, err := newFinds()
@@ -246,13 +205,13 @@ func TestFindsInsertDelete(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := fS.delete()
 		assert.Nil(t, err)
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 	})
 }
 
@@ -262,7 +221,7 @@ func newFinds() (fS Finds, err error) {
 	for i := 0; i < length; i++ {
 		n := start + i
 		td := time.Now().UTC()
-		fS[i], err = NewFind(n, "user_0"+strconv.Itoa(n), true, &td)
+		fS[i], err = NewFind(int64(n), "user_0"+strconv.Itoa(n), true, &td)
 	}
 
 	return
@@ -273,18 +232,18 @@ func TestFindsRowDelete(t *testing.T) {
 	f, err := NewFind(1, "user_00", true, &td)
 	assert.Nil(t, err)
 
-	fS := make(Finds, 1)
+	fS := make(Finds, single)
 	fS[0] = f
 
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := fS.insert(nil)
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := fS.delete()
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 }
@@ -296,13 +255,13 @@ func TestSharesInsertDelete(t *testing.T) {
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := sS.insert(nil)
 		assert.Nil(t, err)
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := sS.delete()
 		assert.Empty(t, err)
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 	})
 }
 
@@ -311,7 +270,7 @@ func newShares() (sS Shares, err error) {
 
 	for i := 0; i < length; i++ {
 		n := start + i
-		sS[i], err = NewShare(n, "user_0"+strconv.Itoa(n), false, "user_1"+strconv.Itoa(n))
+		sS[i], err = NewShare(int64(n), "user_0"+strconv.Itoa(n), false, "user_1"+strconv.Itoa(n))
 	}
 	return
 }
@@ -320,18 +279,18 @@ func TestSharesRowDelete(t *testing.T) {
 	s, err := NewShare(1, "user_01", true, "")
 	assert.Nil(t, err)
 
-	sS := make(Shares, 1)
+	sS := make(Shares, single)
 	sS[0] = s
 
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := sS.insert(nil)
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := sS[0].delete(nil)
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 }
@@ -342,13 +301,13 @@ func TestMediaInsertDelete(t *testing.T) {
 
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := mS.insert(nil)
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 		assert.Nil(t, err)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := mS.delete()
-		assert.Equal(t, length, cnt)
+		assert.Equal(t, int64(length), cnt)
 		assert.Nil(t, err)
 	})
 }
@@ -358,7 +317,7 @@ func newMedia() (mS Media, err error) {
 
 	for i := 0; i < length; i++ {
 		n := start + i
-		mS[i], err = NewMedia(n, "message_0"+strconv.Itoa(n), 0, "")
+		mS[i], err = NewMedia(int64(n), "message_0"+strconv.Itoa(n), 0, "")
 	}
 
 	return
@@ -368,18 +327,18 @@ func TestMediaRowDelete(t *testing.T) {
 	m, err := NewMedia(1, "message", DNE, "")
 	assert.Nil(t, err)
 
-	mS := make(Media, 1)
+	mS := make(Media, single)
 	mS[0] = m
 
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := mS.insert(nil)
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := mS[0].delete(nil)
-		assert.Equal(t, 1, cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
 }
@@ -388,7 +347,8 @@ func TestMomentsRowInsertDelete(t *testing.T) {
 
 	l, err := NewLocation(0.00, 0.00)
 	assert.Nil(t, err)
-	m, err := NewMoment(l, "user_01", true, false, time.Now().UTC())
+	td := time.Now().UTC()
+	m, err := NewMoment(l, "user_01", true, false, &td)
 	assert.Nil(t, err)
 
 	t.Run("insert", func(t *testing.T) {
@@ -399,9 +359,78 @@ func TestMomentsRowInsertDelete(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := m.delete(nil)
-		assert.Equal(t, int64(1), cnt)
+		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
 	})
+}
+
+func TestMomentsRowCreatePublic(t *testing.T) {
+	l, err := NewLocation(0.00, 0.00)
+	assert.Nil(t, err)
+
+	td := time.Now().UTC()
+	m, err := NewMoment(l, "user_01", true, false, &td)
+	assert.Nil(t, err)
+
+	mediaCnt := 1
+	media := make(Media, mediaCnt)
+	for i := 0; i < len(media); i++ {
+		med, err := NewMedia(1, "Hello world "+strconv.Itoa(i), DNE, "")
+		assert.Nil(t, err)
+		media[i] = med
+	}
+
+	err = m.CreatePublic(&media)
+	assert.Nil(t, err)
+
+	cnt, err := media.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(mediaCnt), cnt)
+
+	cnt, err = m.delete(nil)
+	assert.Nil(t, err)
+	assert.Equal(t, int64(single), cnt)
+}
+
+func TestMomentsRowCreatePrivate(t *testing.T) {
+	l, err := NewLocation(0.00, 0.00)
+	assert.Nil(t, err)
+
+	td := time.Now().UTC()
+	m, err := NewMoment(l, "user_01", false, false, &td)
+	assert.Nil(t, err)
+
+	mediaCnt := 1
+	media := make(Media, mediaCnt)
+	for i := 0; i < len(media); i++ {
+		med, err := NewMedia(1, "HelloWorld", DNE, "")
+		assert.Nil(t, err)
+		media[i] = med
+	}
+
+	findsCnt := 10
+	finds := make(Finds, findsCnt)
+	for i := 0; i < findsCnt; i++ {
+		find, err := NewFind(1, "user_0"+strconv.Itoa(i), false, &time.Time{})
+		assert.Nil(t, err)
+		finds[i] = find
+	}
+
+	err = m.CreatePrivate(&media, &finds)
+	assert.Nil(t, err)
+
+	cnt, err := media.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(mediaCnt), cnt)
+
+	cnt, err = finds.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(findsCnt), cnt)
+
+	cnt, err = m.delete(nil)
+	assert.Nil(t, err)
+	assert.Equal(t, int64(single), cnt)
+
 }
 
 var lat float32 = 0.00
@@ -409,12 +438,14 @@ var long float32 = 0.00
 
 func BenchmarkMomentsRowNew(b *testing.B) {
 	l, _ := NewLocation(lat, long)
-	_, _ = NewMoment(l, "user_01", true, false, time.Now().UTC())
+	td := time.Now().UTC()
+	_, _ = NewMoment(l, "user_01", true, false, &td)
 }
 
 func BenchmarkMomentsRowInsert(b *testing.B) {
 	l, _ := NewLocation(lat, long)
-	m, _ := NewMoment(l, "user_01", true, false, time.Now().UTC())
+	td := time.Now().UTC()
+	m, _ := NewMoment(l, "user_01", true, false, &td)
 
 	b.ResetTimer()
 	m.insert(nil)
@@ -648,9 +679,7 @@ func BenchmarkSharesDelete(b *testing.B) {
 // 		m.UserID = users[i%*userCnt]
 // 		m.CreateDate = time.Unix(r.Int63n(time.Now().Unix()), 0)
 // 		m.Latitude = float32(r.Intn(180) - 90)
-// 		m.Longitude = float32(r.Intn(360) - 180)
-// 		m.Type = uint8(r.Intn(4))
-// 		m.Message = "This message must be less than 256 characters. May adjust length restrictions."
+// 		m.Longitude = float32(r.Intn(360) - 180)length restrictions."
 
 // 		if m.Type != DNE {
 // 			m.MediaDir = "D:/mediaDir/"
