@@ -46,18 +46,20 @@ func check(err error) {
 	}
 }
 
-var ErrorMomentID = errors.New("*id must be >= 1.")
+var ErrorTimePtrNil = errors.New("t *time.Time is set to nil")
 
-// setMomentID ensures id is not less than 1.
-func (m *MomentsRow) setMomentID(id int) (err error) {
-	if err = checkMomentID(id); err != nil {
-		return err
+// checkTime ensures that the value of t is a valid address.
+func checkTime(t *time.Time) (err error) {
+	if t == nil {
+		return ErrorTimePtrNil
 	}
-	m.id = id
 	return
 }
 
-func checkMomentID(id int) (err error) {
+var ErrorMomentID = errors.New("*id must be >= 1.")
+
+// checkMomentID ensures that id is greater 0.
+func checkMomentID(id int64) (err error) {
 	if id < 1 {
 		return ErrorMomentID
 	}
@@ -66,15 +68,7 @@ func checkMomentID(id int) (err error) {
 
 var ErrorMediaTypeDNE = errors.New("*t must be >= " + strconv.Itoa(minMediaType) + " AND <= " + strconv.Itoa(maxMediaType))
 
-// setMediaType ensures that t is a value between minMediaType and maxMediaType.
-func (m *MediaRow) setMediaType(t uint8) (err error) {
-	if err = checkMediaType(t); err != nil {
-		return err
-	}
-	m.mType = t
-	return
-}
-
+// checkMediaType ensures that t is less than maxMediaType.
 func checkMediaType(t uint8) (err error) {
 	if t > maxMediaType {
 		return ErrorMediaTypeDNE
@@ -88,29 +82,184 @@ var (
 	ErrorUserIDLong  = errors.New("len(*id) (userID) must be <= " + strconv.Itoa(maxUserChars) + ".")
 )
 
-// validateUserID ensures that the length of id is not less than minUserChars and not greater than maxUserChars.
-func (m *MomentsRow) setUserID(id string) (err error) {
-	if err = checkUserID(id); err != nil {
+// checkUserID ensures that the length of id is between minUserChars and maxUserChars.
+func checkUserID(id string) (err error) {
+	if err = checkUserIDLong(id); err != nil {
 		return
 	}
-	m.userID = id
+	if err = checkUserIDShort(id); err != nil {
+		return
+	}
+	return
+}
+
+// checkUserIDLong ensures that the length of id is less than maxUserChars.
+func checkUserIDLong(id string) (err error) {
+	if l := len(id); l > maxUserChars {
+		return ErrorUserIDLong
+	}
+	return
+}
+
+// checkUserIDShort ensures that the length of id is greater than minUserChars.
+func checkUserIDShort(id string) (err error) {
+	if l := len(id); l < minUserChars {
+		return ErrorUserIDShort
+	}
+	return
+}
+
+var ErrorPrivateHiddenMoment = errors.New("m *MomentsRow cannot be both private and hidden")
+
+// NewMoment is a constructor for the MomentsRow struct.
+func NewMoment(l *Location, uID string, p bool, h bool, c time.Time) (m *MomentsRow, err error) {
+	m = new(MomentsRow)
+
+	if err = m.setLocation(l); err != nil {
+		return
+	}
+	if err = m.setUserID(uID); err != nil {
+		return
+	}
+	if err = m.setCreateDate(&c); err != nil {
+		return
+	}
+	m.hidden = h
+	m.public = p
+
+	if m.hidden && !m.public {
+		return m, ErrorPrivateHiddenMoment
+	}
+
+	return
+
+}
+
+var ErrorLocationIsNil = errors.New("l *Location is nil")
+
+func (m *MomentsRow) setLocation(l *Location) (err error) {
+	if l == nil {
+		return ErrorLocationIsNil
+	}
+	m.Location = *l
+	return
+}
+
+func (m *MomentsRow) setCreateDate(t *time.Time) (err error) {
+	if err = checkTime(t); err != nil {
+		return err
+	}
+	m.createDate = t
+	return
+}
+
+var ErrorMediaDNE = errors.New("m.mType is set to DNE, therefore m.dir must remain empty.")
+var ErrorMediaExistsDirDNE = errors.New("m.mType is not DNE, therefore m.dir must be set.")
+var ErrorMessageLong = errors.New("m must be >= " + strconv.Itoa(minMessage) + " AND <= " + strconv.Itoa(maxMessage) + ".")
+
+// NewMedia is a constructor for the MediaRow struct.
+func NewMedia(mID int64, m string, mType uint8, d string) (mr *MediaRow, err error) {
+	mr = new(MediaRow)
+
+	if err = mr.setMomentID(mID); err != nil {
+		return
+	}
+	if err = mr.setMessage(m); err != nil {
+		return
+	}
+	if err = mr.setmType(mType); err != nil {
+		return
+	}
+	mr.dir = d
+
+	if mr.mType == DNE && mr.dir != "" {
+		return mr, ErrorMediaDNE
+	}
+	if mr.mType != DNE && mr.dir == "" {
+		return mr, ErrorMediaExistsDirDNE
+	}
 
 	return
 }
 
-func (f *FindsRow) setUserID(id string) (err error) {
-	if err = checkUserID(id); err != nil {
-		return
+// setMediaType ensures that t is a value between minMediaType and maxMediaType.
+func (m *MediaRow) setmType(t uint8) (err error) {
+	if err = checkMediaType(t); err != nil {
+		return err
 	}
-	f.userID = id
+	m.mType = t
 	return
 }
 
-func (s *SharesRow) setUserID(id string) (err error) {
-	if err = checkUserID(id); err != nil {
+func (mr *MediaRow) setMessage(m string) (err error) {
+	if l := len(m); l > maxMessage {
+		return ErrorMessageLong
+	}
+	mr.message = m
+	return
+}
+
+var ErrorFoundNilFindDate = errors.New("fr.found=true, therefore fr.findDate must not be nil")
+var ErrorNotFoundFindDateExists = errors.New("fr.found=false, therefore fr.findDate must be nil.")
+
+// NewFind is a constructor for the FindsRow struct
+func NewFind(mID int64, uID string, f bool, fd *time.Time) (fr *FindsRow, err error) {
+	fr = new(FindsRow)
+
+	if err = fr.setMomentID(mID); err != nil {
 		return
 	}
-	s.userID = id
+	if err = fr.setUserID(uID); err != nil {
+		return
+	}
+	if err = fr.setFindDate(fd); err != nil {
+		return
+	}
+	fr.found = f
+
+	if fr.found && fr.findDate == nil {
+		return fr, ErrorFoundNilFindDate
+	}
+	if !fr.found && fr.findDate != nil {
+		return fr, ErrorNotFoundFindDateExists
+	}
+
+	return
+}
+
+func (f *FindsRow) setFindDate(t *time.Time) (err error) {
+	if err = checkTime(t); err != nil {
+		return err
+	}
+	f.findDate = t
+	return
+}
+
+var ErrorAllRecipientExists = errors.New("s.all=true, therefore s.recipientID must be \"\"")
+var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID must be set")
+
+// NewShare is a constructor for the SharesRow struct.
+func NewShare(mID int64, uID string, all bool, r string) (s *SharesRow, err error) {
+	s = new(SharesRow)
+
+	if err = s.setMomentID(mID); err != nil {
+		return
+	}
+	if err = s.setUserID(uID); err != nil {
+		return
+	}
+	if err = s.setRecipientID(r); err != nil {
+		return
+	}
+	s.all = all
+
+	if s.all && s.recipientID != "" {
+		return s, ErrorAllRecipientExists
+	}
+	if !s.all && s.recipientID == "" {
+		return s, ErrorNotAllRecipientDNE
+	}
+
 	return
 }
 
@@ -122,209 +271,60 @@ func (s *SharesRow) setRecipientID(id string) (err error) {
 	return
 }
 
-func checkUserID(id string) (err error) {
-	if err = checkUserIDLong(id); err != nil {
-		return
-	}
-	if err = checkUserIDShort(id); err != nil {
-		return
-	}
-	return
-}
-
-func checkUserIDLong(id string) (err error) {
-	if l := len(id); l > maxUserChars {
-		return ErrorUserIDLong
-	}
-	return
-}
-
-func checkUserIDShort(id string) (err error) {
-	if l := len(id); l < minUserChars {
-		return ErrorUserIDShort
-	}
-	return
-}
-
-var ErrorMediaMessageLong = errors.New("m must be >= " + strconv.Itoa(minMessage) + " AND <= " + strconv.Itoa(maxMessage) + ".")
-
-// validateMediaMessage ensures that the length of m is not greater than 256 characters.
-func (mr *MediaRow) setMediaMessage(m string) (err error) {
-	if len(m) > 256 {
-		return ErrorMediaMessageLong
-	}
-	mr.message = m
-	return
-}
-
-var (
-	ErrorNoMediaTypeHasDir = errors.New("Dir must be \"\" for this media type.")
-	ErrorMediaTypeNoDir    = errors.New("Dir must be set for this media type.")
-)
-
-// validateMediaDir ensures that d only exists if mType is greater than 0.
-func (m *MediaRow) setDir(d string) (err error) {
-	if m.mType == DNE {
-		return ErrorNoMediaTypeHasDir
-	}
-	m.dir = d
-	return
-}
-
-var (
-	ErrorFindDateWithFalseFound = errors.New("fd is a valid pointer while f=false.")
-	ErrorFindDateDNEWithFound   = errors.New("fd is a nil pointer while f=true.")
-)
-
-// validateFindDate ensures that fd only exists if f is set to true.
-func validateFindDate(f bool, fd *time.Time) (err error) {
-	switch {
-	case !f && fd != nil:
-		err = ErrorFindDateWithFalseFound
-	case f && fd == nil:
-		err = ErrorFindDateDNEWithFound
-	}
-	return
-}
-
-var (
-	ErrorShareAllPublicWithRecipients = errors.New("r cannot be set when All=true.")
-	ErrorShareAllNoRecipients         = errors.New("r must be set when All=false.")
-)
-
-// validateShareAll ensures that r only exists if All is set to false.
-func validateShareAll(All bool, r string) (err error) {
-	switch {
-	case All && len(r) > 0:
-		err = ErrorShareAllPublicWithRecipients
-	case !All && len(r) == 0:
-		err = ErrorShareAllNoRecipients
-	}
-	return
-}
-
 var ErrorLatitude = errors.New("Latitude must be between -180 and 180.")
+var ErrorLongitude = errors.New("Longitude must be between -90 and 90.")
 
-// validateLatitude ensures that the values of l is between minLat and maxLat.
-func validateLatitude(l float32) (err error) {
+// NewLocation is a constructor for the Location struct.
+func NewLocation(lat float32, long float32) (lo *Location, err error) {
+	lo = new(Location)
+
+	if err = lo.setLatitude(lat); err != nil {
+		return
+	}
+	if err = lo.setLongitude(long); err != nil {
+		return
+	}
+
+	return
+}
+
+// setLatitude ensures that the values of l is between minLat and maxLat.
+func (lo *Location) setLatitude(l float32) (err error) {
 	if l < minLat || l > maxLat {
 		err = ErrorLatitude
 	}
+	lo.latitude = l
 	return
 }
 
-var ErrorLongitude = errors.New("Longitude must be between -90 and 90.")
-
-// validateLongitude ensures that the values of l is between minLong and maxLong.
-func validateLongitude(l float32) (err error) {
+// setLongitude ensures that the values of l is between minLong and maxLong.
+func (lo *Location) setLongitude(l float32) (err error) {
 	if l < minLong || l > maxLong {
 		err = ErrorLongitude
 	}
+	lo.longitude = l
 	return
 }
 
-var ErrorLocationReference = errors.New("Location reference is nil.")
+type momentID int64
 
-// validateLocation ensures that the value of l is a valid pointer.
-func validateLocation(l *Location) (err error) {
-	if l == nil {
-		err = ErrorLocationReference
+func (m *momentID) setMomentID(id int64) (err error) {
+	if err = checkMomentID(id); err != nil {
+		return err
 	}
+	mID := momentID(id)
+	m = &mID
 	return
 }
 
-var ErrorPublicHiddenCombination = errors.New("Public=false AND Hidden=true is an Error input combination.")
+type userID string
 
-// validateMomentPublicHidden ensures that a moment it not both private and hidden.
-func validateMomentPublicHidden(p, h bool) (err error) {
-	if !p && h {
-		err = ErrorPublicHiddenCombination
+func (u *userID) setUserID(id string) (err error) {
+	if err = checkUserID(id); err != nil {
+		return err
 	}
-	return
-}
-
-// NewMoment is a constructor for the MomentsRow struct.
-func NewMoment(l *Location, uID string, p bool, h bool, c time.Time) (m *MomentsRow, err error) {
-	check(validateLocation(l))
-	check(validateUserID(uID))
-	check(validateMomentPublicHidden(p, h))
-
-	m = &MomentsRow{
-		Location: Location{
-			l.latitude,
-			l.longitude,
-		},
-		userID:     uID,
-		public:     p,
-		hidden:     h,
-		createDate: c,
-	}
-
-	return
-
-}
-
-// NewMedia is a constructor for the MediaRow struct.
-func NewMedia(mID int, m string, mType uint8, d string) (mr *MediaRow, err error) {
-	check(validateMomentID(mID))
-	check(validateMediaMessage(m))
-	check(validateMediaType(mType))
-	check(validateMediaDir(mType, d))
-
-	mr = &MediaRow{
-		momentID: mID,
-		message:  m,
-		mType:    mType,
-		dir:      d,
-	}
-
-	return
-
-}
-
-// NewFind is a constructor for the FindsRow struct
-func NewFind(mID int, uID string, f bool, fd *time.Time) (fr *FindsRow, err error) {
-	check(validateMomentID(mID))
-	check(validateUserID(uID))
-	check(validateFindDate(f, fd))
-
-	fr = &FindsRow{
-		momentID: mID,
-		userID:   uID,
-		found:    f,
-		findDate: fd,
-	}
-
-	return
-}
-
-// NewShare is a constructor for the SharesRow struct.
-func NewShare(mID int, uID string, All bool, r string) (s *SharesRow, err error) {
-	check(validateMomentID(mID))
-	check(validateUserID(uID))
-	check(validateRecipientID(r))
-	check(validateShareAll(All, r))
-
-	s = &SharesRow{
-		momentID:    mID,
-		userID:      uID,
-		all:         All,
-		recipientID: r,
-	}
-
-	return
-}
-
-// NewLocation is a constructor for the Location struct.
-func NewLocation(lat float32, long float32) (l *Location, err error) {
-	check(validateLatitude(lat))
-	check(validateLongitude(long))
-
-	l = &Location{
-		latitude:  lat,
-		longitude: long,
-	}
-
+	uID := userID(id)
+	u = &uID
 	return
 }
 
@@ -338,10 +338,10 @@ type Set interface {
 
 // MediaRow is a row in the [Moment-Db].[moment].[Media] table.
 type MediaRow struct {
-	momentID int
-	message  string
-	mType    uint8
-	dir      string
+	momentID
+	message string
+	mType   uint8
+	dir     string
 }
 
 // String returns the string representation of a MediaRow instance.
@@ -350,7 +350,7 @@ func (m MediaRow) String() string {
 }
 
 // delete is MediaRow method that deletes a row from the [Moment-Db].[moment].[Media] table.
-func (m *MediaRow) delete(c *dba.Trans) (rowCnt int, err error) {
+func (m *MediaRow) delete(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -367,7 +367,7 @@ func (m *MediaRow) delete(c *dba.Trans) (rowCnt int, err error) {
 	}
 
 	cnt, err := res.RowsAffected()
-	rowCnt = int(cnt)
+	rowCnt = int64(cnt)
 
 	return
 }
@@ -376,7 +376,7 @@ func (m *MediaRow) delete(c *dba.Trans) (rowCnt int, err error) {
 type Media []*MediaRow
 
 // insert inserts a set of MediaRow instances into the [Moment-Db].[moment].[Media] table.
-func (mSet *Media) insert(c *dba.Trans) (rowCnt int, err error) {
+func (mSet *Media) insert(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -393,7 +393,7 @@ func (mSet *Media) insert(c *dba.Trans) (rowCnt int, err error) {
 		return
 	}
 	cnt, err := res.RowsAffected()
-	rowCnt = int(cnt)
+	rowCnt = int64(cnt)
 
 	return
 }
@@ -425,11 +425,11 @@ func (mSet *Media) args() (args []interface{}) {
 }
 
 // delete deletes a set of MediaRows from the [Moment-Db].[moment].[Media] table.
-func (mSet *Media) delete() (rowCnt int, err error) {
+func (mSet *Media) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
-	var affCnt int
+	var affCnt int64
 	for _, m := range *mSet {
 		affCnt, err = m.delete(c)
 		if err != nil {
@@ -444,8 +444,8 @@ func (mSet *Media) delete() (rowCnt int, err error) {
 
 // FindsRow is a row in the [Moment-Db].[moment].[Finds] table.
 type FindsRow struct {
-	momentID int
-	userID   string
+	momentID
+	userID
 	found    bool
 	findDate *time.Time
 }
@@ -503,7 +503,7 @@ func (f *FindsRow) FindPrivate() (err error) {
 }
 
 // delete deletes a FindsRow from the [Moment-Db].[moment].[Finds] table.
-func (f *FindsRow) delete(c *dba.Trans) (rowsAff int, err error) {
+func (f *FindsRow) delete(c *dba.Trans) (rowsAff int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -516,7 +516,7 @@ func (f *FindsRow) delete(c *dba.Trans) (rowsAff int, err error) {
 
 	res, err := c.Tx.Exec(deleteFrom, args...)
 	aff, err := res.RowsAffected()
-	rowsAff = int(aff)
+	rowsAff = int64(aff)
 
 	return
 }
@@ -525,7 +525,7 @@ func (f *FindsRow) delete(c *dba.Trans) (rowsAff int, err error) {
 type Finds []*FindsRow
 
 // insert inserts a Finds instance into the [Moment-Db].[moment].[Finds] table.
-func (fSet *Finds) insert(c *dba.Trans) (rowCnt int, err error) {
+func (fSet *Finds) insert(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -541,8 +541,7 @@ func (fSet *Finds) insert(c *dba.Trans) (rowCnt int, err error) {
 	if err != nil {
 		return
 	}
-	cnt, err := res.RowsAffected()
-	rowCnt = int(cnt)
+	rowCnt, err = res.RowsAffected()
 
 	return
 }
@@ -576,11 +575,11 @@ func (fSet *Finds) args() (args []interface{}) {
 }
 
 // delete deletes a Finds instance from the [Moment-Db].[moment].[Finds] table.
-func (fSet *Finds) delete() (rowCnt int, err error) {
+func (fSet *Finds) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
-	var rAff int
+	var rAff int64
 	for _, f := range *fSet {
 		rAff, err = f.delete(c)
 		if err != nil {
@@ -595,8 +594,8 @@ func (fSet *Finds) delete() (rowCnt int, err error) {
 
 // SharesRow is a row in the [Moment-Db].[moment].[Shares] table.
 type SharesRow struct {
-	momentID    int
-	userID      string
+	momentID
+	userID
 	all         bool
 	recipientID string
 }
@@ -615,7 +614,7 @@ func (s SharesRow) String() string {
 }
 
 // delete deletes a SharesRow instance from [Moment-Db].[moment].[Shares] table.
-func (s *SharesRow) delete(c *dba.Trans) (affCnt int, err error) {
+func (s *SharesRow) delete(c *dba.Trans) (affCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -632,11 +631,7 @@ func (s *SharesRow) delete(c *dba.Trans) (affCnt int, err error) {
 		return
 	}
 
-	cnt, err := res.RowsAffected()
-	if err != nil {
-		return
-	}
-	affCnt = int(cnt)
+	affCnt, err = res.RowsAffected()
 
 	return
 }
@@ -646,15 +641,16 @@ type Shares []*SharesRow
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) Share() (rowCnt int, err error) {
-	cnt, err := sSlice.insert(nil)
+func (sSlice *Shares) Share() (rowCnt int64, err error) {
+	rowCnt, err = sSlice.insert(nil)
 	if err != nil {
 		return
 	}
+	return
 }
 
 // insert inserts a Shares instance into [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) insert(c *dba.Trans) (rowCnt int, err error) {
+func (sSlice *Shares) insert(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -670,11 +666,7 @@ func (sSlice *Shares) insert(c *dba.Trans) (rowCnt int, err error) {
 	if err != nil {
 		return
 	}
-	cnt, err := res.RowsAffected()
-	if err != nil {
-		return
-	}
-	rowCnt = int(cnt)
+	rowCnt, err = res.RowsAffected()
 
 	return
 }
@@ -707,11 +699,11 @@ func (sSlice *Shares) args() (args []interface{}) {
 }
 
 // delete deletes an instance of Shares from the [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) delete() (rowCnt int, err error) {
+func (sSlice *Shares) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
-	var affCnt int
+	var affCnt int64
 	for _, s := range *sSlice {
 		affCnt, err = s.delete(c)
 		if err != nil {
@@ -749,11 +741,11 @@ func (l *Location) balloon() (lRange []interface{}) {
 // It is composed of various fields and a Location instance.
 type MomentsRow struct {
 	Location
-	id         int64
-	userID     string
+	momentID
+	userID
 	public     bool
 	hidden     bool
-	createDate time.Time
+	createDate *time.Time
 }
 
 // String returns a string representation of a MomentsRow instance.
@@ -764,7 +756,7 @@ func (m MomentsRow) String() string {
 		"public: %v\n"+
 		"hidden: %v\n"+
 		"createDate: %v\n",
-		m.id,
+		m.momentID,
 		m.userID,
 		m.Location,
 		m.public,
@@ -775,34 +767,36 @@ func (m MomentsRow) String() string {
 var ErrorMediaPointerNil = errors.New("md *Media is nil.")
 
 // CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
-func (m *MomentsRow) CreatePublic(md *Media) (err error) {
-	if md == nil {
-		return ErrorMediaPointerNil
-	}
-
-	c := dba.OpenTx()
-	defer func() { c.Close(err) }()
-
-	mID, err = m.insert(c)
-	md.MomentsID
-
-	_, err = md.insert(c)
-	if err != nil {
-
-	}
-
-	return
-}
+//func (m *MomentsRow) CreatePublic(md *Media) (err error) {
+//	if md == nil {
+//		return ErrorMediaPointerNil
+//	}
+//
+//	c := dba.OpenTx()
+//	defer func() { c.Close(err) }()
+//
+//	mID, err := m.insert(c)
+//	m.id = mID
+//	md.momentID = momentID
+//
+//	_, err = md.insert(c)
+//	if err != nil {
+//
+//	}
+//
+//	return
+//}
 
 // CreatePrivate creates a MomentsRow in [Moment-Db].[moment].[Moments] where Public=true
 // and creates Finds in [Moment-Db].[moment].[Finds].
+
 func (m *MomentsRow) CreatePrivate(md *Media, f *Finds) (err error) {
 
 	return
 }
 
 // insert inserts a MomentsRow into the [Moment-Db].[moment].[Moments] table.
-func (m *MomentsRow) insert(c *dba.Trans) (momentID int64, err error) {
+func (m *MomentsRow) insert(c *dba.Trans) (mID int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -823,11 +817,11 @@ func (m *MomentsRow) insert(c *dba.Trans) (momentID int64, err error) {
 		return
 	}
 
-	momentID, err = res.LastInsertId()
+	mID, err = res.LastInsertId()
 	if err != nil {
 		return
 	}
-	m.id = momentID
+	m.momentID = momentID(mID)
 
 	return
 }
@@ -852,7 +846,7 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 	deleteFrom := `DELETE FROM [moment].[Moments]
 				   WHERE ID = ?`
 
-	res, err := c.Tx.Exec(deleteFrom, m.id)
+	res, err := c.Tx.Exec(deleteFrom, m.momentID)
 	if err != nil {
 		return
 	}

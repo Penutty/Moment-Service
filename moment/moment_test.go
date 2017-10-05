@@ -34,12 +34,26 @@ func TestMain(m *testing.M) {
 	os.Exit(call)
 }
 
-func TestValidateMomentID(t *testing.T) {
-	test := func(id int, expected error) {
+func TestCheckTime(t *testing.T) {
+	test := func(td *time.Time, expected error) {
+		name := errorName(expected)
+		t.Run(name, func(t *testing.T) {
+			err := checkTime(td)
+			assert.Exactly(t, expected, err)
+		})
+	}
+
+	test(nil, ErrorTimePtrNil)
+	td := time.Now().UTC()
+	test(&td, nil)
+}
+
+func TestCheckMomentID(t *testing.T) {
+	test := func(id int64, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateMomentID(id)
+			err := checkMomentID(id)
 			assert.Exactly(t, expected, err)
 		})
 	}
@@ -51,11 +65,11 @@ func TestValidateMomentID(t *testing.T) {
 
 }
 
-func TestValidateMediaType(t *testing.T) {
+func TestCheckMediaType(t *testing.T) {
 	test := func(ty uint8, expected error) {
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateMediaType(ty)
+			err := checkMediaType(ty)
 			assert.Exactly(t, expected, err)
 		})
 	}
@@ -68,12 +82,12 @@ func TestValidateMediaType(t *testing.T) {
 	test(200, ErrorMediaTypeDNE)
 }
 
-func TestValidateUserID(t *testing.T) {
+func TestCheckUserID(t *testing.T) {
 	test := func(id string, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateUserID(id)
+			err := checkUserID(id)
 			assert.Exactly(t, expected, err)
 		})
 	}
@@ -85,12 +99,12 @@ func TestValidateUserID(t *testing.T) {
 	test(strings.Repeat("c", maxUserChars+1), ErrorUserIDLong)
 }
 
-func TestValidateMediaMessage(t *testing.T) {
+func TestCheckMediaMessage(t *testing.T) {
 	test := func(m string, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateMediaMessage(m)
+			err := checkMediaMessage(m)
 			assert.Exactly(t, expected, err)
 		})
 	}
@@ -101,12 +115,12 @@ func TestValidateMediaMessage(t *testing.T) {
 	test(strings.Repeat("c", maxMessage+1), ErrorMediaMessageLong)
 }
 
-func TestValidateMediaDir(t *testing.T) {
+func TestCheckMediaDir(t *testing.T) {
 	test := func(ty uint8, d string, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateMediaDir(ty, d)
+			err := checkMediaDir(ty, d)
 			assert.Exactly(t, expected, err)
 		})
 	}
@@ -121,12 +135,12 @@ func TestValidateMediaDir(t *testing.T) {
 	test(3, "D:/Dir/", nil)
 }
 
-func TestValidateFindDate(t *testing.T) {
+func TestCheckTime(t *testing.T) {
 	test := func(f bool, fd *time.Time, expected error) {
 
 		name := errorName(expected)
 		t.Run(name, func(t *testing.T) {
-			err := validateFindDate(f, fd)
+			err := checkTime(f, fd)
 			assert.Exactly(t, expected, err)
 		})
 	}
