@@ -333,13 +333,6 @@ func checkUserIDShort(id string) (err error) {
 	return
 }
 
-type Moment struct {
-	moment *MomentsRow
-	finds  Finds
-	media  Media
-	shares Shares
-}
-
 // Set is an instance that has insert, delete, values, and args methods.
 type Set interface {
 	insert()
@@ -919,8 +912,15 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 	return
 }
 
+type Result struct {
+	moment *MomentsRow
+	finds  Finds
+	media  Media
+	shares Shares
+}
+
 // searchPublic queries Moment-Db for moments that are public and not hidden.
-func searchPublic(l Location) (ms []MomentsRow, err error) {
+func searchPublic(l Location) (resultSet []Result, err error) {
 	db := openDbConn()
 	defer db.Close()
 
@@ -947,19 +947,21 @@ func searchPublic(l Location) (ms []MomentsRow, err error) {
 	}
 	defer rows.Close()
 
-	m := new(moment)
+	m := new(MomentsRow)
+	medium := new(MediaRow)
 	var createDate string
 	fieldAddrs := []interface{}{
-		&m.m.id,
+		&m.momentID,
 		&m.userID,
-		&m.latitude,
+		&m.latitude, 
 		&m.longitude,
-		&m.Type,
-		&m.Message,
-		&m.MediaDir,
+		&medium.mType,
+		&medium.message,
+		&medium.dir,
 		&createDate,
 	}
 
+	hash := make(map[int64]Result)
 	for rows.Next() {
 		if err = rows.Scan(fieldAddrs...); err != nil {
 			return
@@ -967,6 +969,17 @@ func searchPublic(l Location) (ms []MomentsRow, err error) {
 		m.CreateDate, err = time.Parse(Datetime2, createDate)
 		if err != nil {
 			return
+		}
+
+		r, ok := hash[mo.momentID]
+		if ok {
+			newMedia, err := NewMedia(mo.momentID, medium.message, medium.mType, medium.dir) 
+			if err != nil {
+				return
+			}
+			r.media = append(r.media, newMedia) 	
+		} else {
+			newMoment, err := NewMoment(
 		}
 		ms = append(ms, *m)
 	}
