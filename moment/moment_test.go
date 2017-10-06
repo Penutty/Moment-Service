@@ -365,6 +365,11 @@ func TestMomentsRowInsertDelete(t *testing.T) {
 }
 
 func TestMomentsRowCreatePublic(t *testing.T) {
+	moment := MomentsRowCreatePublic(t)
+	MomentsRowDeletePublic(t, moment)
+}
+
+func MomentsRowCreatePublic(t *testing.T) (moment *Moment) {
 	l, err := NewLocation(0.00, 0.00)
 	assert.Nil(t, err)
 
@@ -383,16 +388,29 @@ func TestMomentsRowCreatePublic(t *testing.T) {
 	err = m.CreatePublic(&media)
 	assert.Nil(t, err)
 
-	cnt, err := media.delete()
-	assert.Nil(t, err)
-	assert.Equal(t, int64(mediaCnt), cnt)
+	return &Moment{
+		m:     m,
+		media: media,
+	}
+}
 
-	cnt, err = m.delete(nil)
+func MomentsRowDeletePublic(t *testing.T, moment *Moment) {
+	cnt, err := moment.media.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(len(moment.media)), cnt)
+
+	cnt, err = moment.m.delete(nil)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
+
 }
 
 func TestMomentsRowCreatePrivate(t *testing.T) {
+	moment := MomentsRowCreatePrivate(t)
+	MomentsRowDeletePrivate(t, moment)
+}
+
+func MomentsRowCreatePrivate(t *testing.T) (moment *Moment) {
 	l, err := NewLocation(0.00, 0.00)
 	assert.Nil(t, err)
 
@@ -419,18 +437,50 @@ func TestMomentsRowCreatePrivate(t *testing.T) {
 	err = m.CreatePrivate(&media, &finds)
 	assert.Nil(t, err)
 
-	cnt, err := media.delete()
-	assert.Nil(t, err)
-	assert.Equal(t, int64(mediaCnt), cnt)
+	return &Moment{
+		m:     m,
+		f:     finds,
+		media: media,
+	}
 
-	cnt, err = finds.delete()
-	assert.Nil(t, err)
-	assert.Equal(t, int64(findsCnt), cnt)
+}
 
-	cnt, err = m.delete(nil)
+func MomentsRowDeletePrivate(t *testing.T, moment *Moment) {
+	cnt, err := moment.media.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(len(moment.media)), cnt)
+
+	cnt, err = moment.f.delete()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(len(moment.f)), cnt)
+
+	cnt, err = moment.m.delete(nil)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
 
+}
+
+func TestFindsRowFindPublic(t *testing.T) {
+	m := MomentsRowCreatePublic(t)
+
+	fd := time.Now().UTC()
+	f, err := NewFind(m.m.momentID, "user_02", true, &fd)
+
+	cnt, err := f.FindPublic()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(single), cnt)
+
+	MomentsRowDeletePublic(t, m)
+}
+
+func TestFindsRowFindPrivate(t *testing.T) {
+	m := MomentsRowCreatePrivate(t)
+
+	// use momentID and userID to find a private moment
+	err := m.f[0].FindPrivate()
+	assert.Nil(t, err)
+
+	MomentsRowDeletePrivate(t, m)
 }
 
 var lat float32 = 0.00

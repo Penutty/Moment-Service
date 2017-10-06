@@ -39,7 +39,10 @@ const (
 	Datetime2 = "2006-01-02 15:04:05"
 )
 
-var ErrorPrivateHiddenMoment = errors.New("m *MomentsRow cannot be both private and hidden")
+var (
+	ErrorPrivateHiddenMoment = errors.New("m *MomentsRow cannot be both private and hidden")
+	ErrorVariableEmpty       = errors.New("Variable is empty.")
+)
 
 // NewMoment is a constructor for the MomentsRow struct.
 func NewMoment(l *Location, uID string, p bool, h bool, c *time.Time) (m *MomentsRow, err error) {
@@ -330,6 +333,13 @@ func checkUserIDShort(id string) (err error) {
 	return
 }
 
+type Moment struct {
+	moment *MomentsRow
+	finds  Finds
+	media  Media
+	shares Shares
+}
+
 // Set is an instance that has insert, delete, values, and args methods.
 type Set interface {
 	insert()
@@ -464,8 +474,14 @@ func (f FindsRow) String() string {
 		f.findDate)
 }
 
+var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true and f.findDate=*time.Time{}")
+
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
-func (f *FindsRow) FindPublic() (id int64, err error) {
+func (f *FindsRow) FindPublic() (cnt int64, err error) {
+	if f.userID == "" || f.momentID == 0 {
+		return 0, ErrorVariableEmpty
+	}
+
 	c := dba.OpenConn()
 	defer c.Db.Close()
 
@@ -478,12 +494,16 @@ func (f *FindsRow) FindPublic() (id int64, err error) {
 	if err != nil {
 		return
 	}
-	id, err = res.LastInsertId()
+	cnt, err = res.RowsAffected()
 	return
 }
 
 // FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
 func (f *FindsRow) FindPrivate() (err error) {
+	if f.userID == "" || f.momentID == 0 {
+		return ErrorVariableEmpty
+	}
+
 	c := dba.OpenConn()
 	defer c.Db.Close()
 
@@ -899,63 +919,63 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 	return
 }
 
-// // searchPublic queries Moment-Db for moments that are public and not hidden.
-// func searchPublic(l Location) (ms []MomentsRow, err error) {
-// 	db := openDbConn()
-// 	defer db.Close()
+// searchPublic queries Moment-Db for moments that are public and not hidden.
+func searchPublic(l Location) (ms []MomentsRow, err error) {
+	db := openDbConn()
+	defer db.Close()
 
-// 	query := `SELECT mo.ID,
-// 					 mo.UserID,
-// 					 mo.Latitude,
-// 					 mo.Longitude,
-// 					 m.Type,
-// 					 m.Message,
-// 					 m.MediaDir,
-// 					 mo.CreateDate
-// 			  FROM [moment].[Moments] mo
-// 			  JOIN [moment].[Media] m
-// 			    ON mo.ID = m.MomentID
-// 			  WHERE mo.Hidden = 0
-// 			  		AND mo.[Public] = 1
-// 			  		AND mo.Latitude BETWEEN ? AND ?
-// 			  		AND mo.Longitude BETWEEN ? AND ?`
+	query := `SELECT mo.ID,
+ 					 mo.UserID,
+ 					 mo.Latitude,
+ 					 mo.Longitude,
+ 					 m.Type,
+ 					 m.Message,
+ 					 m.MediaDir,
+ 					 mo.CreateDate
+ 			  FROM [moment].[Moments] mo
+ 			  JOIN [moment].[Media] m
+ 			    ON mo.ID = m.MomentID
+ 			  WHERE mo.Hidden = 0
+ 			  		AND mo.[Public] = 1
+ 			  		AND mo.Latitude BETWEEN ? AND ?
+ 			  		AND mo.Longitude BETWEEN ? AND ?`
 
-// 	lRange := l.balloon()
-// 	rows, err := db.Query(query, lRange...)
-// 	if err != nil {
-// 		return
-// 	}
-// 	defer rows.Close()
+	lRange := l.balloon()
+	rows, err := db.Query(query, lRange...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
 
-// 	m := new(MomentsRow)
-// 	var createDate string
-// 	fieldAddrs := []interface{}{
-// 		&m.id,
-// 		&m.userID,
-// 		&m.latitude,
-// 		&m.longitude,
-// 		&m.Type,
-// 		&m.Message,
-// 		&m.MediaDir,
-// 		&createDate,
-// 	}
+	m := new(moment)
+	var createDate string
+	fieldAddrs := []interface{}{
+		&m.m.id,
+		&m.userID,
+		&m.latitude,
+		&m.longitude,
+		&m.Type,
+		&m.Message,
+		&m.MediaDir,
+		&createDate,
+	}
 
-// 	for rows.Next() {
-// 		if err = rows.Scan(fieldAddrs...); err != nil {
-// 			return
-// 		}
-// 		m.CreateDate, err = time.Parse(Datetime2, createDate)
-// 		if err != nil {
-// 			return
-// 		}
-// 		ms = append(ms, *m)
-// 	}
-// 	if err = rows.Err(); err != nil {
-// 		return
-// 	}
+	for rows.Next() {
+		if err = rows.Scan(fieldAddrs...); err != nil {
+			return
+		}
+		m.CreateDate, err = time.Parse(Datetime2, createDate)
+		if err != nil {
+			return
+		}
+		ms = append(ms, *m)
+	}
+	if err = rows.Err(); err != nil {
+		return
+	}
 
-// 	return
-// }
+	return
+}
 
 // // searchShared queries Moment-Db for moments that a user has found, and shared with others.
 // func searchShared(u string, me string) (ms []MomentsRow, err error) {
