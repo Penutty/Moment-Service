@@ -13,8 +13,15 @@ import (
 	"time"
 )
 
-var userCnt = flag.Int("userCnt", 100, "The number of unique users to be created in Moment-Db for testing.")
-var momentCnt = flag.Int("momentCnt", 1000, "The number of moments to be created in Moment-Db for testing.")
+const (
+	TestUser      string = "user00"
+	TestEmptyUser string = ""
+
+	lat  float32 = 0.00
+	long float32 = 0.00
+
+	base int = 1
+)
 
 func errorName(err error) (name string) {
 	if err == nil {
@@ -91,8 +98,8 @@ func TestCheckUserID(t *testing.T) {
 		})
 	}
 
-	test("user123", nil)
-	test("", ErrorUserIDShort)
+	test(TestUser, nil)
+	test(TestEmptyUser, ErrorUserIDShort)
 	test("user", ErrorUserIDShort)
 	test(strings.Repeat("c", maxUserChars), nil)
 	test(strings.Repeat("c", maxUserChars+1), ErrorUserIDLong)
@@ -148,10 +155,10 @@ func TestNewFind(t *testing.T) {
 	}
 
 	fd := time.Now().UTC()
-	test(1, "user_01", true, &fd, nil)
-	test(1, "user_01", true, &time.Time{}, ErrorFoundEmptyFindDate)
-	test(1, "user_01", false, &time.Time{}, nil)
-	test(1, "user_01", false, &fd, ErrorNotFoundFindDateExists)
+	test(1, TestUser, true, &fd, nil)
+	test(1, TestUser, true, &time.Time{}, ErrorFoundEmptyFindDate)
+	test(1, TestUser, false, &time.Time{}, nil)
+	test(1, TestUser, false, &fd, ErrorNotFoundFindDateExists)
 }
 
 func TestNewShare(t *testing.T) {
@@ -164,10 +171,10 @@ func TestNewShare(t *testing.T) {
 		})
 	}
 
-	test(1, "user_01", false, "user_02", nil)
-	test(1, "user_01", true, "user_02", ErrorAllRecipientExists)
-	test(1, "user_01", true, "", nil)
-	test(1, "user_01", false, "", ErrorNotAllRecipientDNE)
+	test(1, TestUser, false, "user_02", nil)
+	test(1, TestUser, true, "user_02", ErrorAllRecipientExists)
+	test(1, TestUser, true, "", nil)
+	test(1, TestUser, false, "", ErrorNotAllRecipientDNE)
 }
 func TestNewMoment(t *testing.T) {
 
@@ -180,14 +187,14 @@ func TestNewMoment(t *testing.T) {
 		})
 	}
 
-	lo, _ := NewLocation(0.00, 0.00)
+	lo, _ := NewLocation(lat, long)
 	cd := time.Now().UTC()
 
-	test(lo, "user_01", true, false, &cd, nil)
-	test(nil, "user_01", true, false, &cd, ErrorLocationIsNil)
-	test(lo, "user_01", true, true, &cd, nil)
-	test(lo, "user_01", false, false, &cd, nil)
-	test(lo, "user_01", false, true, &cd, ErrorPrivateHiddenMoment)
+	test(lo, TestUser, true, false, &cd, nil)
+	test(nil, TestUser, true, false, &cd, ErrorLocationIsNil)
+	test(lo, TestUser, true, true, &cd, nil)
+	test(lo, TestUser, false, false, &cd, nil)
+	test(lo, TestUser, false, true, &cd, ErrorPrivateHiddenMoment)
 }
 
 const (
@@ -200,19 +207,20 @@ func TestFindsInsertDelete(t *testing.T) {
 	fS, err := newFinds()
 	assert.Nil(t, err)
 
-	t.Run("insert", func(t *testing.T) {
-		cnt, err := fS.insert(nil)
-		if err != nil {
-			t.Error(err)
-		}
-		assert.Equal(t, int64(length), cnt)
-	})
+	subTestFindsInsert(t, fS)
+	subTestFindsDelete(t, fS)
+}
 
-	t.Run("delete", func(t *testing.T) {
-		cnt, err := fS.delete()
-		assert.Nil(t, err)
-		assert.Equal(t, int64(length), cnt)
-	})
+func TestFindsRowDelete(t *testing.T) {
+	td := time.Now().UTC()
+	f, err := NewFind(1, TestUser, true, &td)
+	assert.Nil(t, err)
+
+	fS := make(Finds, single)
+	fS[0] = f
+
+	subTestFindsInsert(t, fS)
+	subTestFindsDelete(t, fS)
 }
 
 func newFinds() (fS Finds, err error) {
@@ -221,77 +229,71 @@ func newFinds() (fS Finds, err error) {
 	for i := 0; i < length; i++ {
 		n := start + i
 		td := time.Now().UTC()
-		fS[i], err = NewFind(int64(n), "user_0"+strconv.Itoa(n), true, &td)
+		fS[i], err = NewFind(int64(n), TestUser+strconv.Itoa(n), true, &td)
 	}
 
 	return
 }
 
-func TestFindsRowDelete(t *testing.T) {
-	td := time.Now().UTC()
-	f, err := NewFind(1, "user_00", true, &td)
-	assert.Nil(t, err)
-
-	fS := make(Finds, single)
-	fS[0] = f
-
+func subTestFindsInsert(t *testing.T, fS Finds) {
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := fS.insert(nil)
-		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
+		assert.Equal(t, int64(len(fS)), cnt)
 	})
+}
 
+func subTestFindsDelete(t *testing.T, fS Finds) {
 	t.Run("delete", func(t *testing.T) {
 		cnt, err := fS.delete()
-		assert.Equal(t, int64(single), cnt)
 		assert.Nil(t, err)
+		assert.Equal(t, int64(len(fS)), cnt)
 	})
 }
 
 func TestSharesInsertDelete(t *testing.T) {
-	sS, err := newShares()
+	sS, err := newShares(base, length, false)
 	assert.Nil(t, err)
 
-	t.Run("insert", func(t *testing.T) {
-		cnt, err := sS.insert(nil)
-		assert.Nil(t, err)
-		assert.Equal(t, int64(length), cnt)
-	})
-
-	t.Run("delete", func(t *testing.T) {
-		cnt, err := sS.delete()
-		assert.Empty(t, err)
-		assert.Equal(t, int64(length), cnt)
-	})
+	subTestSharesRowInsert(t, sS)
+	subTestSharesRowDelete(t, sS)
 }
 
-func newShares() (sS Shares, err error) {
-	sS = make(Shares, length)
+func TestSharesRowDelete(t *testing.T) {
+	sS, err := newShares(base, single, true)
+	assert.Nil(t, err)
 
-	for i := 0; i < length; i++ {
+	subTestSharesRowInsert(t, sS)
+	subTestSharesRowDelete(t, sS)
+}
+
+func newShares(start int, cnt int, all bool) (sS Shares, err error) {
+	sS = make(Shares, cnt)
+
+	for i := 0; i < cnt; i++ {
 		n := start + i
-		sS[i], err = NewShare(int64(n), "user_0"+strconv.Itoa(n), false, "user_1"+strconv.Itoa(n))
+		if all {
+			sS[i], err = NewShare(int64(n), TestUser+strconv.Itoa(n), true, TestEmptyUser)
+		} else {
+			sS[i], err = NewShare(int64(n), TestUser+strconv.Itoa(n), false, TestUser+strconv.Itoa(n+1))
+		}
 	}
 	return
 }
 
-func TestSharesRowDelete(t *testing.T) {
-	s, err := NewShare(1, "user_01", true, "")
-	assert.Nil(t, err)
-
-	sS := make(Shares, single)
-	sS[0] = s
-
+func subTestSharesRowInsert(t *testing.T, sS Shares) {
 	t.Run("insert", func(t *testing.T) {
-		cnt, err := sS.insert(nil)
-		assert.Equal(t, int64(single), cnt)
+		cnt, err := sS.insert()
 		assert.Nil(t, err)
+		assert.Equal(t, int64(len(sS)), cnt)
 	})
+}
 
+func subTestSharesRowDelete(t *testing.T, sS Shares) {
 	t.Run("delete", func(t *testing.T) {
-		cnt, err := sS[0].delete(nil)
-		assert.Equal(t, int64(single), cnt)
-		assert.Nil(t, err)
+		cnt, err := sS.delete()
+		assert.Empty(t, err)
+		assert.Equal(t, int64(len(sS)), cnt)
 	})
 }
 
@@ -299,17 +301,19 @@ func TestMediaInsertDelete(t *testing.T) {
 	mS, err := newMedia()
 	assert.Nil(t, err)
 
-	t.Run("insert", func(t *testing.T) {
-		cnt, err := mS.insert(nil)
-		assert.Equal(t, int64(length), cnt)
-		assert.Nil(t, err)
-	})
+	subTestMediaInsert(t, mS)
+	subTestMediaDelete(t, mS)
+}
 
-	t.Run("delete", func(t *testing.T) {
-		cnt, err := mS.delete()
-		assert.Equal(t, int64(length), cnt)
-		assert.Nil(t, err)
-	})
+func TestMediaRowDelete(t *testing.T) {
+	m, err := NewMedia(1, "message", DNE, "")
+	assert.Nil(t, err)
+
+	mS := make(Media, single)
+	mS[0] = m
+
+	subTestMediaInsert(t, mS)
+	subTestMediaDelete(t, mS)
 }
 
 func newMedia() (mS Media, err error) {
@@ -323,32 +327,28 @@ func newMedia() (mS Media, err error) {
 	return
 }
 
-func TestMediaRowDelete(t *testing.T) {
-	m, err := NewMedia(1, "message", DNE, "")
-	assert.Nil(t, err)
-
-	mS := make(Media, single)
-	mS[0] = m
-
+func subTestMediaInsert(t *testing.T, mS Media) {
 	t.Run("insert", func(t *testing.T) {
 		cnt, err := mS.insert(nil)
-		assert.Equal(t, int64(single), cnt)
+		assert.Equal(t, int64(len(mS)), cnt)
 		assert.Nil(t, err)
 	})
+}
 
+func subTestMediaDelete(t *testing.T, mS Media) {
 	t.Run("delete", func(t *testing.T) {
-		cnt, err := mS[0].delete(nil)
-		assert.Equal(t, int64(single), cnt)
+		cnt, err := mS.delete()
+		assert.Equal(t, int64(len(mS)), cnt)
 		assert.Nil(t, err)
 	})
 }
 
 func TestMomentsRowInsertDelete(t *testing.T) {
 
-	l, err := NewLocation(0.00, 0.00)
+	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 	td := time.Now().UTC()
-	m, err := NewMoment(l, "user_01", true, false, &td)
+	m, err := NewMoment(l, TestUser, true, false, &td)
 	assert.Nil(t, err)
 
 	t.Run("insert", func(t *testing.T) {
@@ -365,16 +365,16 @@ func TestMomentsRowInsertDelete(t *testing.T) {
 }
 
 func TestMomentsRowCreatePublic(t *testing.T) {
-	moment := MomentsRowCreatePublic(t)
-	MomentsRowDeletePublic(t, moment)
+	r := MomentsRowCreatePublic(t)
+	MomentsRowDeletePublic(t, r)
 }
 
-func MomentsRowCreatePublic(t *testing.T) (moment *Moment) {
-	l, err := NewLocation(0.00, 0.00)
+func MomentsRowCreatePublic(t *testing.T) *Result {
+	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
 	td := time.Now().UTC()
-	m, err := NewMoment(l, "user_01", true, false, &td)
+	m, err := NewMoment(l, TestUser, true, false, &td)
 	assert.Nil(t, err)
 
 	mediaCnt := 1
@@ -388,34 +388,34 @@ func MomentsRowCreatePublic(t *testing.T) (moment *Moment) {
 	err = m.CreatePublic(&media)
 	assert.Nil(t, err)
 
-	return &Moment{
-		m:     m,
-		media: media,
+	return &Result{
+		moment: m,
+		media:  media,
 	}
 }
 
-func MomentsRowDeletePublic(t *testing.T, moment *Moment) {
-	cnt, err := moment.media.delete()
+func MomentsRowDeletePublic(t *testing.T, r *Result) {
+	cnt, err := r.media.delete()
 	assert.Nil(t, err)
-	assert.Equal(t, int64(len(moment.media)), cnt)
+	assert.Equal(t, int64(len(r.media)), cnt)
 
-	cnt, err = moment.m.delete(nil)
+	cnt, err = r.moment.delete(nil)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
 
 }
 
 func TestMomentsRowCreatePrivate(t *testing.T) {
-	moment := MomentsRowCreatePrivate(t)
-	MomentsRowDeletePrivate(t, moment)
+	r := MomentsRowCreatePrivate(t)
+	MomentsRowDeletePrivate(t, r)
 }
 
-func MomentsRowCreatePrivate(t *testing.T) (moment *Moment) {
-	l, err := NewLocation(0.00, 0.00)
+func MomentsRowCreatePrivate(t *testing.T) *Result {
+	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
 	td := time.Now().UTC()
-	m, err := NewMoment(l, "user_01", false, false, &td)
+	m, err := NewMoment(l, TestUser, false, false, &td)
 	assert.Nil(t, err)
 
 	mediaCnt := 1
@@ -429,7 +429,7 @@ func MomentsRowCreatePrivate(t *testing.T) (moment *Moment) {
 	findsCnt := 10
 	finds := make(Finds, findsCnt)
 	for i := 0; i < findsCnt; i++ {
-		find, err := NewFind(1, "user_0"+strconv.Itoa(i), false, &time.Time{})
+		find, err := NewFind(1, TestUser+strconv.Itoa(i), false, &time.Time{})
 		assert.Nil(t, err)
 		finds[i] = find
 	}
@@ -437,54 +437,80 @@ func MomentsRowCreatePrivate(t *testing.T) (moment *Moment) {
 	err = m.CreatePrivate(&media, &finds)
 	assert.Nil(t, err)
 
-	return &Moment{
-		m:     m,
-		f:     finds,
-		media: media,
+	return &Result{
+		moment: m,
+		finds:  finds,
+		media:  media,
 	}
 
 }
 
-func MomentsRowDeletePrivate(t *testing.T, moment *Moment) {
-	cnt, err := moment.media.delete()
+func MomentsRowDeletePrivate(t *testing.T, r *Result) {
+	cnt, err := r.media.delete()
 	assert.Nil(t, err)
-	assert.Equal(t, int64(len(moment.media)), cnt)
+	assert.Equal(t, int64(len(r.media)), cnt)
 
-	cnt, err = moment.f.delete()
+	cnt, err = r.finds.delete()
 	assert.Nil(t, err)
-	assert.Equal(t, int64(len(moment.f)), cnt)
+	assert.Equal(t, int64(len(r.finds)), cnt)
 
-	cnt, err = moment.m.delete(nil)
+	cnt, err = r.moment.delete(nil)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
 
 }
 
 func TestFindsRowFindPublic(t *testing.T) {
-	m := MomentsRowCreatePublic(t)
+	r := MomentsRowCreatePublic(t)
 
 	fd := time.Now().UTC()
-	f, err := NewFind(m.m.momentID, "user_02", true, &fd)
+	f, err := NewFind(r.moment.momentID, TestUser+"2", true, &fd)
 
 	cnt, err := f.FindPublic()
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
 
-	MomentsRowDeletePublic(t, m)
+	MomentsRowDeletePublic(t, r)
 }
 
 func TestFindsRowFindPrivate(t *testing.T) {
-	m := MomentsRowCreatePrivate(t)
+	r := MomentsRowCreatePrivate(t)
 
 	// use momentID and userID to find a private moment
-	err := m.f[0].FindPrivate()
+	err := r.finds[0].FindPrivate()
 	assert.Nil(t, err)
 
-	MomentsRowDeletePrivate(t, m)
+	MomentsRowDeletePrivate(t, r)
 }
 
-var lat float32 = 0.00
-var long float32 = 0.00
+func TestQueryLocationShared(t *testing.T) {
+	r := MomentsRowCreatePrivate(t)
+
+	f := r.finds[0]
+	sS := make(Shares, single)
+	s, err := NewShare(f.momentID, f.userID, true, TestEmptyUser)
+	assert.Nil(t, err)
+	sS[0] = s
+
+	cnt, err := sS.Share()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(single), cnt)
+
+	l, err := NewLocation(lat, long)
+	assert.Nil(t, err)
+
+	res, err := QueryLocationShared(l, TestUser+"0")
+	assert.Nil(t, err)
+	assert.Equal(t, TestUser, res[0].moment.userID)
+	assert.Equal(t, lat, res[0].moment.latitude)
+	assert.Equal(t, long, res[0].moment.longitude)
+	assert.Equal(t, uint8(DNE), res[0].media[0].mType)
+	assert.Equal(t, "HelloWorld", res[0].media[0].message)
+	assert.Equal(t, "", res[0].media[0].dir)
+
+	subTestSharesRowDelete(t, sS)
+	MomentsRowDeletePrivate(t, r)
+}
 
 func BenchmarkMomentsRowNew(b *testing.B) {
 	l, _ := NewLocation(lat, long)
@@ -513,10 +539,10 @@ func BenchmarkFindsInsert(b *testing.B) {
 }
 
 func BenchmarkSharesInsert(b *testing.B) {
-	sS, _ := newShares()
+	sS, _ := newShares(base, length, false)
 
 	b.ResetTimer()
-	sS.insert(nil)
+	sS.insert()
 	b.StopTimer()
 	sS.delete()
 }
@@ -532,9 +558,9 @@ func BenchmarkMediaInsert(b *testing.B) {
 
 func BenchmarkSharesDelete(b *testing.B) {
 	b.StopTimer()
-	sS, _ := newShares()
+	sS, _ := newShares(base, length, false)
 
-	sS.insert(nil)
+	sS.insert()
 	b.StartTimer()
 
 	sS.delete()

@@ -658,7 +658,7 @@ type Shares []*SharesRow
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
 func (sSlice *Shares) Share() (rowCnt int64, err error) {
-	rowCnt, err = sSlice.insert(nil)
+	rowCnt, err = sSlice.insert()
 	if err != nil {
 		return
 	}
@@ -666,11 +666,9 @@ func (sSlice *Shares) Share() (rowCnt int64, err error) {
 }
 
 // insert inserts a Shares instance into [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) insert(c *dba.Trans) (rowCnt int64, err error) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
+func (sSlice *Shares) insert() (rowCnt int64, err error) {
+	c := dba.OpenConn()
+	defer c.Db.Close()
 
 	insert := `INSERT INTO [moment].[Shares] (MomentID, UserID, [All], RecipientID)
 			   VALUES `
@@ -678,7 +676,7 @@ func (sSlice *Shares) insert(c *dba.Trans) (rowCnt int64, err error) {
 	insert = insert + values
 	args := sSlice.args()
 
-	res, err := c.Tx.Exec(insert, args...)
+	res, err := c.Db.Exec(insert, args...)
 	if err != nil {
 		return
 	}
@@ -919,77 +917,235 @@ type Result struct {
 	shares Shares
 }
 
-// searchPublic queries Moment-Db for moments that are public and not hidden.
-func searchPublic(l Location) (resultSet []Result, err error) {
-	db := openDbConn()
-	defer db.Close()
+type Results []Result
 
-	query := `SELECT mo.ID,
- 					 mo.UserID,
- 					 mo.Latitude,
- 					 mo.Longitude,
- 					 m.Type,
- 					 m.Message,
- 					 m.MediaDir,
- 					 mo.CreateDate
- 			  FROM [moment].[Moments] mo
- 			  JOIN [moment].[Media] m
- 			    ON mo.ID = m.MomentID
- 			  WHERE mo.Hidden = 0
- 			  		AND mo.[Public] = 1
- 			  		AND mo.Latitude BETWEEN ? AND ?
- 			  		AND mo.Longitude BETWEEN ? AND ?`
+func QueryLocationShared(l *Location, me string) (r Results, err error) {
+	if err = isLocationEmpty(l); err != nil {
+		return
+	}
+	if err = isUserIDEmpty(me); err != nil {
+		return
+	}
 
-	lRange := l.balloon()
-	rows, err := db.Query(query, lRange...)
+	query := `SELECT m.ID,
+					 m.UserID,
+					 m.Latitude,
+					 m.Longitude, 
+					 m.CreateDate,
+					 med.Message, 
+					 med.Type, 
+					 med.Dir
+			  FROM moment.Moments m
+			  JOIN moment.Shares s
+			    ON m.ID = s.MomentID
+			  JOIN moment.Media med
+			    ON med.MomentID = m.ID
+			  WHERE m.Latitude BETWEEN ? AND ?
+			  		AND m.Longitude BETWEEN ? AND ?
+					AND (s.RecipientID = ? OR s.[All] = 1)`
+
+	args := l.balloon()
+	args = append(args, me)
+
+	c := dba.OpenConn()
+	defer c.Db.Close()
+
+	rows, err := c.Db.Query(query, args...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	m := new(MomentsRow)
-	medium := new(MediaRow)
 	var createDate string
-	fieldAddrs := []interface{}{
+	m := new(MomentsRow)
+	med := new(MediaRow)
+	rowDestination := []interface{}{
 		&m.momentID,
 		&m.userID,
-		&m.latitude, 
+		&m.latitude,
 		&m.longitude,
-		&medium.mType,
-		&medium.message,
-		&medium.dir,
 		&createDate,
+		&med.message,
+		&med.mType,
+		&med.dir,
 	}
 
-	hash := make(map[int64]Result)
+	hash := make(map[int64]*Result)
 	for rows.Next() {
-		if err = rows.Scan(fieldAddrs...); err != nil {
+		if err = rows.Scan(rowDestination...); err != nil {
 			return
 		}
-		m.CreateDate, err = time.Parse(Datetime2, createDate)
+
+		var cd time.Time
+		cd, err = time.Parse(Datetime2, createDate)
 		if err != nil {
 			return
 		}
+		m.createDate = &cd
 
-		r, ok := hash[mo.momentID]
+		_, ok := hash[m.momentID]
 		if ok {
-			newMedia, err := NewMedia(mo.momentID, medium.message, medium.mType, medium.dir) 
-			if err != nil {
-				return
-			}
-			r.media = append(r.media, newMedia) 	
+			hash[m.momentID].media = append(hash[m.momentID].media, med)
 		} else {
-			newMoment, err := NewMoment(
+			hash[m.momentID] = &Result{
+				moment: m,
+				media: Media{
+					med,
+				},
+			}
 		}
-		ms = append(ms, *m)
 	}
 	if err = rows.Err(); err != nil {
 		return
 	}
 
+	r = make([]Result, 0, len(hash))
+	for _, v := range hash {
+		r = append(r, *v)
+	}
+
 	return
 }
 
+func isLocationEmpty(l *Location) (err error) {
+	if l == nil {
+		return ErrorLocationIsNil
+	}
+	return
+}
+
+func isUserIDEmpty(s string) (err error) {
+	if s == "" {
+		return ErrorUserIDShort
+	}
+	return
+}
+
+//
+//func LocationPublic(l *Location) (s *Select, err error) {
+//	if l == nil {
+//		return s, ErrorVariableEmpty
+//	}
+//	s := new(Select)
+//	s.args = make([]interface{}, 1)
+//	s.args[0] = l
+//
+//	return
+//}
+//
+//func LocationHidden(l *Location) (s *Select, err error) {
+//	if l == nil {
+//		return s, ErrorVariableEmpty
+//	}
+//	s := new(Select)
+//	s.args = make([]interface{}, 1
+//	return
+//}
+//
+//func LocationLost(l *Location, me string) (s *Select, err error) {
+//
+//	return
+//}
+//
+//func isLocationEmpty(l *Location) (err error) {
+//	if l == nil {
+//		return ErrorLocationIsNil
+//	}
+//	return
+//}
+//
+//func isStringEmpty(s string) (err error) {
+//	if s == "" {
+//		return ErrorStringIsEmpty
+//	}
+//	return
+//}
+//
+//func UserShared(me string, u string) (s *Select, err error) {
+//
+//	return
+//}
+//
+//
+//func UserLeft(me string) (s *Select, err error) {
+//	return
+//}
+//
+//func UserFound(me string) (s *Select, err error) {
+//	return
+//}
+
+// searchPublic queries Moment-Db for moments that are public and not hidden.
+//func searchPublic(l Location) (resultSet []Result, err error) {
+//	db := openDbConn()
+//	defer db.Close()
+//
+//	query := `SELECT mo.ID,
+// 					 mo.UserID,
+// 					 mo.Latitude,
+// 					 mo.Longitude,
+// 					 m.Type,
+// 					 m.Message,
+// 					 m.MediaDir,
+// 					 mo.CreateDate
+// 			  FROM [moment].[Moments] mo
+// 			  JOIN [moment].[Media] m
+// 			    ON mo.ID = m.MomentID
+// 			  WHERE mo.Hidden = 0
+// 			  		AND mo.[Public] = 1
+// 			  		AND mo.Latitude BETWEEN ? AND ?
+// 			  		AND mo.Longitude BETWEEN ? AND ?`
+//
+//	lRange := l.balloon()
+//	rows, err := db.Query(query, lRange...)
+//	if err != nil {
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	medium := new(MediaRow)
+//	var createDate string
+//	fieldAddrs := []interface{}{
+//		&m.momentID,
+//		&m.userID,
+//		&m.latitude,
+//		&m.longitude,
+//		&medium.mType,
+//		&medium.message,
+//		&medium.dir,
+//		&createDate,
+//	}
+//
+//	hash := make(map[int64]Result)
+//	for rows.Next() {
+//		if err = rows.Scan(fieldAddrs...); err != nil {
+//			return
+//		}
+//		m.CreateDate, err = time.Parse(Datetime2, createDate)
+//		if err != nil {
+//			return
+//		}
+//
+//		r, ok := hash[mo.momentID]
+//		if ok {
+//			newMedia, err := NewMedia(mo.momentID, medium.message, medium.mType, medium.dir)
+//			if err != nil {
+//				return
+//			}
+//			r.media = append(r.media, newMedia)
+//		} else {
+//			newMoment, err := NewMoment(
+//		}
+//		ms = append(ms, *m)
+//	}
+//	if err = rows.Err(); err != nil {
+//		return
+//	}
+//
+//	return
+//}
+//
 // // searchShared queries Moment-Db for moments that a user has found, and shared with others.
 // func searchShared(u string, me string) (ms []MomentsRow, err error) {
 // 	db := openDbConn()
