@@ -365,22 +365,22 @@ func TestMomentsRowInsertDelete(t *testing.T) {
 }
 
 func TestMomentsRowCreatePublic(t *testing.T) {
-	r := MomentsRowCreatePublic(t)
+	r := MomentsRowCreatePublic(t, false)
 	MomentsRowDeletePublic(t, r)
 }
 
-func MomentsRowCreatePublic(t *testing.T) *Result {
+func MomentsRowCreatePublic(t *testing.T, hidden bool) *Result {
 	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
 	td := time.Now().UTC()
-	m, err := NewMoment(l, TestUser, true, false, &td)
+	m, err := NewMoment(l, TestUser, true, hidden, &td)
 	assert.Nil(t, err)
 
 	mediaCnt := 1
 	media := make(Media, mediaCnt)
 	for i := 0; i < len(media); i++ {
-		med, err := NewMedia(1, "Hello world "+strconv.Itoa(i), DNE, "")
+		med, err := NewMedia(1, "HelloWorld", DNE, "")
 		assert.Nil(t, err)
 		media[i] = med
 	}
@@ -461,7 +461,7 @@ func MomentsRowDeletePrivate(t *testing.T, r *Result) {
 }
 
 func TestFindsRowFindPublic(t *testing.T) {
-	r := MomentsRowCreatePublic(t)
+	r := MomentsRowCreatePublic(t, false)
 
 	fd := time.Now().UTC()
 	f, err := NewFind(r.moment.momentID, TestUser+"2", true, &fd)
@@ -500,6 +500,7 @@ func TestQueryLocationShared(t *testing.T) {
 	assert.Nil(t, err)
 
 	res, err := QueryLocationShared(l, TestUser+"0")
+	t.Log(res)
 	assert.Nil(t, err)
 	assert.Equal(t, TestUser, res[0].moment.userID)
 	assert.Equal(t, lat, res[0].moment.latitude)
@@ -511,6 +512,56 @@ func TestQueryLocationShared(t *testing.T) {
 	subTestSharesRowDelete(t, sS)
 	MomentsRowDeletePrivate(t, r)
 }
+
+//func TestQueryLocationPublic(t *testing.T) {
+//	hidden := false
+//	r := MomentsRowCreatePublic(t, hidden)
+//
+//	l, err := NewLocation(lat, long)
+//	assert.Nil(t, err)
+//
+//	res, err := QueryLocationPublic(l)
+//	assert.Nil(t, err)
+//	assert.Equal(t, TestUser, res[0].moment.userID)
+//	assert.Equal(t, lat, res[0].moment.latitude)
+//	assert.Equal(t, long, res[0].moment.longitude)
+//	assert.Equal(t, uint8(DNE), res[0].media[0].mType)
+//	assert.Equal(t, "HelloWorld", res[0].media[0].message)
+//	assert.Equal(t, "", res[0].media[0].dir)
+//
+//	MomentsRowDeletePublic(t, r)
+//}
+//
+//func TestQueryLocationHidden(t *testing.T) {
+//	hidden := true
+//	r := MomentsRowCreatePublic(t, hidden)
+//
+//	l, err := NewLocation(lat, long)
+//	assert.Nil(t, err)
+//
+//	res, err := QueryLocationHidden(l)
+//	assert.Nil(t, err)
+//	assert.Equal(t, lat, res[0].moment.latitude)
+//	assert.Equal(t, long, res[0].moment.longitude)
+//
+//	MomentsRowDeletePublic(t, r)
+//}
+//
+//func TestQueryLocationLost(t *testing.T) {
+//	r := MomentsRowCreatePrivate(t)
+//
+//	l, err := NewLocation(lat, long)
+//	assert.Nil(t, err)
+//
+//	me := TestUser + "1"
+//	res, err := QueryLocationLost(l, me)
+//	t.Logf("res = %v\n", res)
+//	assert.Nil(t, err)
+//	assert.Equal(t, lat, res[0].moment.latitude)
+//	assert.Equal(t, long, res[0].moment.longitude)
+//
+//	MomentsRowDeletePrivate(t, r)
+//}
 
 func BenchmarkMomentsRowNew(b *testing.B) {
 	l, _ := NewLocation(lat, long)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/penutty/dba"
+	"github.com/penutty/util"
 	"strconv"
 	"strings"
 	"time"
@@ -917,71 +918,80 @@ type Result struct {
 	shares Shares
 }
 
-type Results []Result
+type Results []*Result
 
-func QueryLocationShared(l *Location, me string) (r Results, err error) {
-	if err = isLocationEmpty(l); err != nil {
+func momentQuery() (q *dba.Query, err error) {
+	q = dba.NewQuery("Standard Moment Select")
+	columns := []string{
+		"m.ID",
+		"m.UserID",
+		"m.Latitude",
+		"m.Longitude",
+		"m.CreateDate",
+		"med.Message",
+		"med.Type",
+		"med.Dir",
+	}
+	if err = q.Selects(columns...); err != nil {
 		return
 	}
-	if err = isUserIDEmpty(me); err != nil {
+
+	if err = q.From("moment.Moments m"); err != nil {
 		return
 	}
 
-	query := `SELECT m.ID,
-					 m.UserID,
-					 m.Latitude,
-					 m.Longitude, 
-					 m.CreateDate,
-					 med.Message, 
-					 med.Type, 
-					 med.Dir
-			  FROM moment.Moments m
-			  JOIN moment.Shares s
-			    ON m.ID = s.MomentID
-			  JOIN moment.Media med
-			    ON med.MomentID = m.ID
-			  WHERE m.Latitude BETWEEN ? AND ?
-			  		AND m.Longitude BETWEEN ? AND ?
-					AND (s.RecipientID = ? OR s.[All] = 1)`
+	joins := []string{
+		`moment.Media med
+		 on m.ID = med.MomentID`,
+	}
+	if err = q.Join(joins...); err != nil {
+		return
+	}
 
-	args := l.balloon()
-	args = append(args, me)
+	wheres := []string{
+		"m.Latitude BETWEEN ? AND ?",
+		"AND m.Longitude BETWEEN ? AND ?",
+	}
+	if err = q.Where(wheres...); err != nil {
+		return
+	}
+
+	return
+}
+
+var (
+	ErrorQueryStringEmpty = errors.New("Empty string passed into queryString parameter.")
+)
+
+func momentResults(query *dba.Query) (r Results, err error) {
+	if util.IsEmpty(query) {
+		return r, ErrorQueryStringEmpty
+	}
+
+	queryString, err := query.Build()
+	if err != nil {
+		return
+	}
+
+	dest, err := query.Dest()
+	if err != nil {
+		return
+	}
 
 	c := dba.OpenConn()
 	defer c.Db.Close()
 
-	rows, err := c.Db.Query(query, args...)
+	rows, err := c.Db.Query(queryString, query.Args()...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	var createDate string
-	m := new(MomentsRow)
-	med := new(MediaRow)
-	rowDestination := []interface{}{
-		&m.momentID,
-		&m.userID,
-		&m.latitude,
-		&m.longitude,
-		&createDate,
-		&med.message,
-		&med.mType,
-		&med.dir,
-	}
-
 	hash := make(map[int64]*Result)
 	for rows.Next() {
-		if err = rows.Scan(rowDestination...); err != nil {
+		if err = rows.Scan(dest...); err != nil {
 			return
 		}
-
-		var cd time.Time
-		cd, err = time.Parse(Datetime2, createDate)
-		if err != nil {
-			return
-		}
-		m.createDate = &cd
 
 		_, ok := hash[m.momentID]
 		if ok {
@@ -999,74 +1009,237 @@ func QueryLocationShared(l *Location, me string) (r Results, err error) {
 		return
 	}
 
-	r = make([]Result, 0, len(hash))
+	r = make(Results, 0, len(hash))
 	for _, v := range hash {
-		r = append(r, *v)
-	}
-
-	return
-}
-
-func isLocationEmpty(l *Location) (err error) {
-	if l == nil {
-		return ErrorLocationIsNil
+		r = append(r, v)
 	}
 	return
 }
 
-func isUserIDEmpty(s string) (err error) {
-	if s == "" {
-		return ErrorUserIDShort
+func QueryLocationShared(l *Location, me string) (r Results, err error) {
+	if util.IsEmpty(l) || util.IsEmpty(me) {
+		return r, ErrorVariableEmpty
 	}
+
+	query, err := momentQuery()
+	if err != nil {
+		return
+	}
+
+	if err = query.Join("moment.Shares s ON m.ID = s.MomentID"); err != nil {
+		return
+	}
+	if err = query.Where("AND (s.RecipientID = ? OR s.[All] = 1)"); err != nil {
+		return
+	}
+
+	args := l.balloon()
+	args = append(args, me)
+	if err = query.SetArgs(args...); err != nil {
+		return
+	}
+
+	r, err = momentResult(query)
+
 	return
 }
 
-//
-//func LocationPublic(l *Location) (s *Select, err error) {
-//	if l == nil {
-//		return s, ErrorVariableEmpty
+//func QueryLocationPublic(l *Location) (r Results, err error) {
+//	if util.IsEmpty(l) {
+//		return r, ErrorVariableEmpty
 //	}
-//	s := new(Select)
-//	s.args = make([]interface{}, 1)
-//	s.args[0] = l
 //
-//	return
-//}
-//
-//func LocationHidden(l *Location) (s *Select, err error) {
-//	if l == nil {
-//		return s, ErrorVariableEmpty
+//	Query, err := momentQuery()
+//	if err != nil {
+//		return
 //	}
-//	s := new(Select)
-//	s.args = make([]interface{}, 1
-//	return
-//}
 //
-//func LocationLost(l *Location, me string) (s *Select, err error) {
-//
-//	return
-//}
-//
-//func isLocationEmpty(l *Location) (err error) {
-//	if l == nil {
-//		return ErrorLocationIsNil
+//	clauses := []string{
+//		"AND [Public] = 1",
+//		"AND [Hidden] = 0",
 //	}
-//	return
-//}
-//
-//func isStringEmpty(s string) (err error) {
-//	if s == "" {
-//		return ErrorStringIsEmpty
+//	if err = Query.Where(clauses...); err != nil {
+//		return
 //	}
+//
+//	args := l.balloon()
+//
+//	queryString, err := Query.Build()
+//	if err != nil {
+//		return
+//	}
+//
+//	r, err = momentResult(queryString, args)
+//
 //	return
 //}
 //
-//func UserShared(me string, u string) (s *Select, err error) {
+//func lostQuery() (q *dba.Query, err error) {
+//	q = dba.NewQuery("Lost Moments Query")
+//
+//	columns := []string{
+//		"m.ID",
+//		"m.Latitude",
+//		"m.Longitude",
+//	}
+//	if err = q.Selects(columns...); err != nil {
+//		return
+//	}
+//	if err = q.From("moment.Moments m"); err != nil {
+//		return
+//	}
+//
+//	clauses := []string{
+//		"m.Latitude BETWEEN ? AND ?",
+//		"AND m.Longitude BETWEEN  ? AND ?",
+//	}
+//	if err = q.Where(clauses...); err != nil {
+//		return
+//	}
 //
 //	return
 //}
 //
+//func lostResults(queryString string, args []interface{}) (r Results, err error) {
+//	if util.IsEmpty(queryString) {
+//		return r, ErrorVariableEmpty
+//	}
+//	if strings.Count(queryString, "?") != len(args) {
+//		return r, ErrorArgAndParameterMisMatch
+//	}
 //
+//	db := dba.OpenConn()
+//	defer db.Db.Close()
+//
+//	rows, err := db.Db.Query(queryString, args...)
+//	if err != nil {
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	dest := []interface{}{
+//		&m.momentID,
+//		&m.latitude,
+//		&m.longitude,
+//	}
+//
+//	r = make(Results, 0)
+//	for rows.Next() {
+//		if err = rows.Scan(dest...); err != nil {
+//			return
+//		}
+//		newR := &Result{
+//			moment: m,
+//		}
+//		r = append(r, newR)
+//	}
+//
+//	return
+//}
+//
+//func QueryLocationHidden(l *Location) (r Results, err error) {
+//	if util.IsEmpty(l) {
+//		return r, ErrorLocationIsNil
+//	}
+//
+//	query, err := lostQuery()
+//	if err != nil {
+//		return
+//	}
+//
+//	clauses := []string{
+//		"AND [Public] = 1",
+//		"AND [Hidden] = 1",
+//	}
+//	if err = query.Where(clauses...); err != nil {
+//		return
+//	}
+//
+//	args := l.balloon()
+//
+//	queryString, err := query.Build()
+//	if err != nil {
+//		return
+//	}
+//
+//	r, err = lostResults(queryString, args)
+//
+//	return
+//}
+//
+//func QueryLocationLost(l *Location, me string) (r Results, err error) {
+//	if util.IsEmpty(l) {
+//		return r, ErrorLocationIsNil
+//	}
+//	if util.IsEmpty(me) {
+//		return r, ErrorVariableEmpty
+//	}
+//
+//	query, err := lostQuery()
+//	if err != nil {
+//		return
+//	}
+//
+//	if err = query.Join("moment.Finds f ON m.ID = f.MomentID"); err != nil {
+//		return
+//	}
+//
+//	clauses := []string{
+//		"AND f.UserID = ?",
+//		"AND f.Found = 0",
+//		"AND m.[Public] = 0",
+//	}
+//	if err = query.Where(clauses...); err != nil {
+//		return
+//	}
+//
+//	queryString, err := query.Build()
+//	if err != nil {
+//		return
+//	}
+//
+//	args := l.balloon()
+//	args = append(args, me)
+//
+//	r, err = lostResults(queryString, args)
+//	return
+//}
+//
+//func UserShared(me string, u string) (r Results, err error) {
+//	if util.IsEmpty(me) || util.IsEmpty(u) {
+//		return ErrorVariableEmpty
+//	}
+//
+//	query, err := momentQuery()
+//	if err != nil {
+//		return
+//	}
+//
+//	if err = query.Join("moment.Shares s ON m.ID = s.MomentID"); err != nil {
+//		return
+//	}
+//
+//	clauses := []string{
+//		"AND s.UserID = ?",
+//		"AND (s.RecipientID = ? OR s.[All] = 1)",
+//	}
+//	if err = query.Where(clauses...); err != nil {
+//		return ErrorVariableEmpty
+//	}
+//
+//	queryString, err := query.Build()
+//	if err != nil {
+//		return
+//	}
+//
+//	args := l.balloon()
+//	args = append(args, me, u)
+//
+//	r, err = momentResult(queryString, args)
+//	return
+//}
+
 //func UserLeft(me string) (s *Select, err error) {
 //	return
 //}
