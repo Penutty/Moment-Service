@@ -1,7 +1,6 @@
 package moment
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -37,9 +36,6 @@ const (
 	// minLong and maxLong represents the max and min values of the [moment].[Moments].[Longitude] column.
 	minLong = -90
 	maxLong = 90
-
-	// Datetime2 is the time.Time format this package uses to communicate DateTime2 values to Moment-Db.
-	Datetime2 = "2006-01-02 15:04:05"
 )
 
 var (
@@ -380,6 +376,24 @@ func (m *MediaRow) delete(c *dba.Trans) (rowCnt int64, err error) {
 	return
 }
 
+// MediaMap is a map of pointers to MediaRow instances.
+type MediaMap map[int64]*MediaRow
+
+// add inserts a pointer to a MediaRow instance into the MediaMap receiver.
+func (mp MediaMap) add(md *MediaRow) (err error) {
+	if util.IsEmpty(md) {
+		return ErrorVariableEmpty
+	}
+	mp[md.mType] = md
+	return
+}
+
+// exists checks if the specified MediaRow instance is already in the MediaMap receiver.
+func (mp MediaMap) exists(md *MediaRow) bool {
+	_, ok := mp[md.mType]
+	return ok
+}
+
 // Media is a set of pointers to MediaRow instances.
 type Media []*MediaRow
 
@@ -538,6 +552,23 @@ func (f *FindsRow) delete(c *dba.Trans) (rowsAff int64, err error) {
 	return
 }
 
+// FindsMap is a map of pointers to FindsRow instances.
+type FindsMap map[int64]*FindsRow
+
+// add inserts a pointer to a FindsRow instance into the Findsmap receiver.
+func (fm FindsMap) add(f *FindsRow) (err error) {
+	if util.IsEmpty(f) {
+		return ErrorVariableEmpty
+	}
+	fm[f.userID] = f
+}
+
+// exists checks if the f *FindsRow exists in the FindsMap receiver.
+func (fm FindsMap) exists(f *FindsRow) bool {
+	_, ok := fm[f.userID]
+	return ok
+}
+
 // Finds is a slice of pointers to FindsRow instances.
 type Finds []*FindsRow
 
@@ -653,6 +684,24 @@ func (s *SharesRow) delete(c *dba.Trans) (affCnt int64, err error) {
 	affCnt, err = res.RowsAffected()
 
 	return
+}
+
+// SharesMap is a map of pointers to SharesRow instances.
+type SharesMap map[int64]*SharesRow
+
+// add inserts a pointer to a SharesRow instance into the SharesMap receiver.
+func (sm SharesMap) add(s *SharesRow) (err error) {
+	if util.IsEmpty(s) {
+		return ErrorVariableEmpty
+	}
+	sm[s.userID] = s
+	return
+}
+
+// exists checks if the specified SharesRow instance is already in the SharesMap receiver.
+func (sm SharesMap) exists(s *SharesRow) bool {
+	_, ok := sm[s.userID]
+	return ok
 }
 
 // Shares is a slice of pointers to SharesRow instances.
@@ -915,22 +964,24 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 
 type Result struct {
 	moment *MomentsRow
-	finds  Finds
-	media  Media
-	shares Shares
+	finds  FindsMap
+	media  MediaMap
+	shares SharesMap
 }
 
+type Results []*Result
 type ResultsMap map[int64]*Result
 
 var ErrorTypeNotImplemented = errors.New("Type switch does not handle specified type.")
 
-func (rs *ResultsMap) add(mRow *MomentsRow, is ...interface{}) (err error) {
+func (rm ResultsMap) add(mRow *MomentsRow, rs ...resultSet) (err error) {
 	r := new(Result)
 	r.moment = mRow
-	for _, i := range is {
+	for _, i := range rs {
 		switch v := i.(type) {
 		case *MediaRow:
-			r.media = Media{v}
+			r.
+				r.media = Media{v}
 		case *FindsRow:
 			r.finds = Finds{v}
 		case *SharesRow:
@@ -939,13 +990,14 @@ func (rs *ResultsMap) add(mRow *MomentsRow, is ...interface{}) (err error) {
 			return ErrorTypeNotImplemented
 		}
 	}
-	rs[mRow.momentID] = r
+	rm[mRow.momentID] = r
+	return
 }
-func (rs *ResultsMap) exists(mRow *MomentsRow) bool {
+func (rs ResultsMap) exists(mRow *MomentsRow) bool {
 	_, ok := rs[mRow.momentID]
 	return ok
 }
-func (rs *ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
+func (rs ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
 	mID := mRow.momentID
 	for _, i := range is {
 		switch v := i.(type) {
@@ -959,13 +1011,10 @@ func (rs *ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
 			return ErrorTypeNotImplemented
 		}
 	}
+	return
 }
 
-func (rs *ResultsMap) slice() (r Results, err error) {
-	if util.IsEmpty(rs) {
-		return r, ErrorEmptyMap
-	}
-
+func (rs ResultsMap) slice() (r Results) {
 	r = make(Results, len(rs))
 	var i int
 	for _, v := range rs {
@@ -987,7 +1036,7 @@ const (
 	noAlias = ""
 )
 
-func momentLostColumns() (c []*dba.Column, err error) {
+func momentsLostColumns() (c []*dba.Column, err error) {
 	c = make([]*dba.Column, 3)
 	c[0], err = dba.NewColumn(momentAlias, "ID", noAlias)
 	c[1], err = dba.NewColumn(momentAlias, "Latitude", noAlias)
@@ -995,13 +1044,13 @@ func momentLostColumns() (c []*dba.Column, err error) {
 	return
 }
 
-func momentColumns() (c []*dba.Column, err error) {
+func momentsColumns() (c []*dba.Column, err error) {
 	c = make([]*dba.Column, 4)
 	c[0], err = dba.NewColumn(momentAlias, "UserID", noAlias)
 	c[1], err = dba.NewColumn(momentAlias, "[Public]", noAlias)
 	c[2], err = dba.NewColumn(momentAlias, "[Hidden]", noAlias)
 	c[3], err = dba.NewColumn(momentAlias, "CreateDate", noAlias)
-	lc, err := momentLostColumns()
+	lc, err := momentsLostColumns()
 	if err != nil {
 		return
 	}
@@ -1009,39 +1058,43 @@ func momentColumns() (c []*dba.Column, err error) {
 	return
 }
 
-func momentFrom(join string) (t *dba.Table, err error) {
-	t, err = dba.NewTable(momentSchema, "Moment", momentAlias, join)
+func momentsFrom(join string) (t *dba.Table, err error) {
+	t, err = dba.NewTable(momentSchema, "Moments", momentAlias, join)
 	return
 }
 
-func momentJoin(key string) string {
-	return momentAlias + ".ID = " + key
+func momentsJoin(alias string) string {
+	return momentAlias + ".ID = " + alias + ".MomentID"
 }
 
-func momentWhereLocation(l Location) (w []*dba.Where, err error) {
+func momentsWhereLocation(l *Location) (w []*dba.Where, err error) {
 	w = make([]*dba.Where, 2)
 	w[0], err = dba.NewWhere("", momentAlias+".Latitude BETWEEN ? AND ?", []interface{}{l.latitude - 1, l.latitude + 1})
-	w[1], err = dba.NewWhere("", momentAlias+".Longitude BETWEEN ? AND ?", []interface{}{l.longitude - 1, l.longitude + 1})
+	w[1], err = dba.NewWhere("AND", momentAlias+".Longitude BETWEEN ? AND ?", []interface{}{l.longitude - 1, l.longitude + 1})
 	return
 }
 
-func momentWherePublic() (w []*dba.Where, err error) {
+func momentsWherePublic() (w []*dba.Where, err error) {
 	w = make([]*dba.Where, 2)
 	w[0], err = dba.NewWhere("AND", momentAlias+".[Public] = 1", nil)
 	w[1], err = dba.NewWhere("AND", momentAlias+".[Hidden] = 0", nil)
 	return
 }
 
-func momentWhereHidden() (w []*dba.Where, err error) {
+func momentsWhereHidden() (w []*dba.Where, err error) {
 	w = make([]*dba.Where, 2)
 	w[0], err = dba.NewWhere("AND", momentAlias+".[Public] = 1", nil)
 	w[1], err = dba.NewWhere("AND", momentAlias+".[Hidden] = 1", nil)
 	return
 }
 
-func momentWherePrivate() (w []*dba.Where, err error) {
-	w = make([]*dba.Where, 1)
-	w[0], err = dba.NewWhere("AND", momentAlias+".[Public] = 0", nil)
+func momentsWherePrivate() (w *dba.Where, err error) {
+	w, err = dba.NewWhere("AND", momentAlias+".[Public] = 0", nil)
+	return
+}
+
+func momentsWhereUserID(u string) (w *dba.Where, err error) {
+	w, err = dba.NewWhere("AND", momentAlias+".UserID = ?", []interface{}{u})
 	return
 }
 
@@ -1058,14 +1111,33 @@ func mediaFrom(join string) (t *dba.Table, err error) {
 	return
 }
 
+func findsColumns() (c []*dba.Column, err error) {
+	c = make([]*dba.Column, 2)
+	c[0], err = dba.NewColumn(findsAlias, "UserID", noAlias)
+	c[1], err = findsFindDateColumn()
+	return
+}
+
+func findsFindDateColumn() (c *dba.Column, err error) {
+	c, err = dba.NewColumn(findsAlias, "FindDate", noAlias)
+	return
+}
+
 func findsFrom(join string) (t *dba.Table, err error) {
 	t, err = dba.NewTable(momentSchema, "Finds", findsAlias, join)
 	return
 }
 
-func findsWhereUserId(u string) (w []*dba.Where, err error) {
+func findsWhereLostUserId(u string) (w []*dba.Where, err error) {
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("AND", findsAlias+".Found = 1", nil)
+	w[0], err = dba.NewWhere("AND", findsAlias+".Found = 0", nil)
+	w[1], err = dba.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
+	return
+}
+
+func findsWhereUserIDFound(u string) (w []*dba.Where, err error) {
+	w = make([]*dba.Where, 2)
+	w[0], err = dba.NewWhere("", findsAlias+".Found = 1", nil)
 	w[1], err = dba.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
 	return
 }
@@ -1075,16 +1147,22 @@ func sharesFrom(join string) (t *dba.Table, err error) {
 	return
 }
 
-func sharesWhereRecipient(me string) (w []*dba.Where, err error) {
-	w = make([]*dba.Where, 1)
-	w[0], err = dba.NewWhere("AND", "("+sharesAlias+".RecipientID = ? OR s.[All] = 1)", []interface{}{me})
+func sharesWhereRecipient(me string) (w *dba.Where, err error) {
+	w, err = dba.NewWhere("AND", "("+sharesAlias+".RecipientID = ? OR s.[All] = 1)", []interface{}{me})
 	return
 }
 
-func momentQuery() (q *dba.Query, err error) {
-	q = dba.NewQuery("Standard Moment Select")
+func sharesWhereUserIDRecipient(you, me string) (w []*dba.Where, err error) {
+	w = make([]*dba.Where, 2)
+	w[0], err = dba.NewWhere("", "s.UserID = ?", []interface{}{you})
+	w[1], err = dba.NewWhere("AND", "(s.RecipientID = ? OR s.[All] = 1)", []interface{}{me})
+	return
+}
 
-	mc, err := momentColumns()
+func momentsQuery() (q *dba.Query, err error) {
+	q = dba.NewQuery("Standard Moments Select")
+
+	mc, err := momentsColumns()
 	medc, err := mediaColumns()
 	if err != nil {
 		return
@@ -1095,8 +1173,8 @@ func momentQuery() (q *dba.Query, err error) {
 		return
 	}
 
-	mf, err := momentFrom(noJoin)
-	medf, err := mediaFrom(momentJoin(mediaAlias + ".MomentID"))
+	mf, err := momentsFrom(noJoin)
+	medf, err := mediaFrom(momentsJoin(mediaAlias))
 	if err != nil {
 
 	}
@@ -1115,7 +1193,7 @@ func momentQuery() (q *dba.Query, err error) {
 func lostQuery() (q *dba.Query, err error) {
 	q = dba.NewQuery("Lost Moments Query")
 
-	mlc, err := momentLostColumns()
+	mlc, err := momentsLostColumns()
 	if err != nil {
 		return
 	}
@@ -1123,22 +1201,13 @@ func lostQuery() (q *dba.Query, err error) {
 		return
 	}
 
-	mf, err := momentFrom(noJoin)
+	mf, err := momentsFrom(noJoin)
 	if err != nil {
 		return
 	}
 	if err = q.SetFroms(mf); err != nil {
 		return
 	}
-
-	mwl, err := momentWhereLocation()
-	if err != nil {
-		return
-	}
-	if err = q.SetWheres(mwl...); err != nil {
-		return
-	}
-
 	return
 }
 
@@ -1147,52 +1216,52 @@ func LocationShared(l *Location, me string) (r Results, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentQuery()
+	query, err := momentsQuery()
 	if err != nil {
 		return
 	}
 
-	sf, err = sharesFrom()
+	sf, err := sharesFrom(momentsJoin(sharesAlias))
 	if err != nil {
 		return
 	}
-	if err = query.SetFroms(sf...); err != nil {
+	if err = query.SetFroms(sf); err != nil {
 		return
 	}
 
-	mwl, err = momentWhereLocation(l)
+	mwl, err := momentsWhereLocation(l)
 	if err != nil {
 		return
 	}
-	swr, err = momentWhereRecipient(me)
+	swr, err := sharesWhereRecipient(me)
 	if err != nil {
 		return
 	}
-	wheres := append(mwl, swr...)
+	wheres := append(mwl, swr)
 	if err = query.SetWheres(wheres...); err != nil {
 		return
 	}
 
-	r, err = momentResults(query)
+	r, err = process(query, momentsResults)
 
 	return
 }
 
-func QueryLocationPublic(l *Location) (r Results, err error) {
+func LocationPublic(l *Location) (r Results, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentQuery()
+	query, err := momentsQuery()
 	if err != nil {
 		return
 	}
 
-	mwl, err := momentWhereLocation(l)
+	mwl, err := momentsWhereLocation(l)
 	if err != nil {
 		return
 	}
-	mwp, err := momentWherePublic()
+	mwp, err := momentsWherePublic()
 	if err != nil {
 		return
 	}
@@ -1202,12 +1271,12 @@ func QueryLocationPublic(l *Location) (r Results, err error) {
 		return
 	}
 
-	r, err = momentResults(query)
+	r, err = process(query, momentsResults)
 
 	return
 }
 
-func QueryLocationHidden(l *Location) (r Results, err error) {
+func LocationHidden(l *Location) (r Results, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorLocationIsNil
 	}
@@ -1217,27 +1286,27 @@ func QueryLocationHidden(l *Location) (r Results, err error) {
 		return
 	}
 
-	mwl, err = momentWhereLocation(l)
+	mwl, err := momentsWhereLocation(l)
 	if err != nil {
 		return
 	}
 
-	mwh, err = momentWhereHidden()
+	mwh, err := momentsWhereHidden()
 	if err != nil {
 		return
 	}
 
 	wheres := append(mwl, mwh...)
-	if err = query.Where(wheres...); err != nil {
+	if err = query.SetWheres(wheres...); err != nil {
 		return
 	}
 
-	r, err = lostResults(query)
+	r, err = process(query, lostResults)
 
 	return
 }
 
-func QueryLocationLost(l *Location, me string) (r Results, err error) {
+func LocationLost(l *Location, me string) (r Results, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorLocationIsNil
 	}
@@ -1250,7 +1319,7 @@ func QueryLocationLost(l *Location, me string) (r Results, err error) {
 		return
 	}
 
-	ff, err := findsFrom()
+	ff, err := findsFrom(momentsJoin(findsAlias))
 	if err != nil {
 		return
 	}
@@ -1258,26 +1327,26 @@ func QueryLocationLost(l *Location, me string) (r Results, err error) {
 		return
 	}
 
-	mwl, err := momentWhereLocation(l)
+	mwl, err := momentsWhereLocation(l)
 	if err != nil {
 		return
 	}
-	mwp, err := momentWherePrivate()
+	mwp, err := momentsWherePrivate()
 	if err != nil {
 		return
 	}
-	fwu, err := findsWhereUserId(me)
+	fwlu, err := findsWhereLostUserId(me)
 	if err != nil {
 		return
 	}
 
-	wheres := append(mwl, mwp...)
-	wheres = append(wheres, fwu...)
+	wheres := append(mwl, mwp)
+	wheres = append(wheres, fwlu...)
 	if err = query.SetWheres(wheres...); err != nil {
 		return
 	}
 
-	r, err = process(lostResults)
+	r, err = process(query, lostResults)
 	return
 }
 
@@ -1286,36 +1355,105 @@ func UserShared(me string, u string) (r Results, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentQuery()
+	query, err := momentsQuery()
 	if err != nil {
 		return
 	}
 
-	if err = query.Selects("s.UserID"); err != nil {
+	sf, err := sharesFrom(momentsJoin(sharesAlias))
+	if err != nil {
 		return
 	}
 
-	if err = query.From("moment.Shares s ON m.ID = s.MomentID"); err != nil {
+	if err = query.SetFroms(sf); err != nil {
 		return
 	}
 
-	clauses := []string{
-		"AND s.UserID = ?",
-		"AND (s.RecipientID = ? OR s.[All] = 1)",
+	swur, err := sharesWhereUserIDRecipient(u, me)
+	if err != nil {
+		return
 	}
-	if err = query.Where(clauses...); err != nil {
+	if err = query.SetWheres(swur...); err != nil {
 		return
 	}
 
-	args := []interface{}{
-		me,
-		u,
+	r, err = process(query, momentsResults)
+	return
+}
+
+func UserLeft(me string) (r Results, err error) {
+	if util.IsEmpty(me) {
+		return r, ErrorVariableEmpty
 	}
-	if err = query.SetArgs(args...); err != nil {
+
+	query, err := momentsQuery()
+	if err != nil {
 		return
 	}
 
-	r, err = process(momentResults)
+	fc, err := findsColumns()
+	if err != nil {
+		return
+	}
+	if err = query.SetColumns(fc...); err != nil {
+		return
+	}
+
+	ff, err := findsFrom(momentsJoin(findsAlias))
+	if err != nil {
+		return
+	}
+	if err = query.SetFroms(ff); err != nil {
+		return
+	}
+
+	mwu, err := momentsWhereUserID(me)
+	if err != nil {
+		return
+	}
+	if err = query.SetWheres(mwu); err != nil {
+		return
+	}
+
+	r, err = process(query, leftResults)
+	return
+}
+
+func UserFound(me string) (r Results, err error) {
+	if util.IsEmpty(me) {
+		return r, ErrorVariableEmpty
+	}
+
+	query, err := momentsQuery()
+	if err != nil {
+		return
+	}
+
+	fdc, err := findsFindDateColumn()
+	if err != nil {
+		return
+	}
+	if err = query.SetColumns(fdc); err != nil {
+		return
+	}
+
+	ff, err := findsFrom(momentsJoin(findsAlias))
+	if err != nil {
+		return
+	}
+	if err = query.SetFroms(ff); err != nil {
+		return
+	}
+
+	fwu, err := findsWhereUserIDFound(me)
+	if err != nil {
+		return
+	}
+	if err = query.SetWheres(fwu...); err != nil {
+		return
+	}
+
+	r, err = process(query, foundResults)
 	return
 }
 
@@ -1332,17 +1470,22 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (Results, error)) (r R
 	if err != nil {
 		return
 	}
+	fmt.Printf("queryString: %v\n", queryString)
 
 	c := dba.OpenConn()
 	defer c.Db.Close()
 
-	rows, err := c.Db.Query(queryString, query.Args()...)
+	args, err := query.Args()
+	if err != nil {
+		return
+	}
+	rows, err := c.Db.Query(queryString, args...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	r, err = rowHandler(rows, dest)
+	r, err = rowHandler(rows)
 	if err != nil {
 		return
 	}
@@ -1353,34 +1496,34 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (Results, error)) (r R
 	return
 }
 
-func momentResults(rows *sql.Rows) (r []*Result, err error) {
+func momentsResults(rows *sql.Rows) (r Results, err error) {
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
+	var createDate string
 	dest := []interface{}{
-		&m.id,
 		&m.userID,
-		&m.latitude,
-		&m.longitude,
 		&m.public,
 		&m.hidden,
 		&createDate,
+		&m.momentID,
+		&m.latitude,
+		&m.longitude,
 		&md.message,
 		&md.mType,
 		&md.dir,
 	}
 
-	rm = new(Results)
+	rm := make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
 		}
 
-		cDate, err := time.Parse(Datetime2, createDate)
+		m.createDate, err = dba.ParseDateTime2(createDate)
 		if err != nil {
-			return rf, err
+			return
 		}
-		m.createDate = &cDate
 
 		if rm.exists(m) {
 			if err = rm.append(m, md); err != nil {
@@ -1396,6 +1539,102 @@ func momentResults(rows *sql.Rows) (r []*Result, err error) {
 	return
 }
 
+func leftResults(rows *sql.Rows) (r Results, err error) {
+	m := new(MomentsRow)
+	md := new(MediaRow)
+	f := new(FindsRow)
+	var createDate, findDate string
+	dest := []interface{}{
+		&m.userID,
+		&m.public,
+		&m.hidden,
+		&createDate,
+		&m.momentID,
+		&m.latitude,
+		&m.longitude,
+		&md.message,
+		&md.mType,
+		&md.dir,
+		&f.userID,
+		&findDate,
+	}
+
+	rm := make(ResultsMap, 0)
+	for rows.Next() {
+		if err = rows.Scan(dest...); err != nil {
+			return
+		}
+		m.createDate, err = dba.ParseDateTime2(createDate)
+		if err != nil {
+			return
+		}
+		f.findDate, err = dba.ParseDateTime2(findDate)
+		if err != nil {
+			return
+		}
+
+		if rm.exists(m) {
+			if err = rm.append(m, md, f); err != nil {
+				return
+			}
+		} else {
+			if err = rm.add(m, md, f); err != nil {
+				return
+			}
+		}
+	}
+	r = rm.slice()
+	return
+}
+
+func foundResults(rows *sql.Rows) (r Results, err error) {
+	m := new(MomentsRow)
+	md := new(MediaRow)
+	f := new(FindsRow)
+	var createDate, findDate string
+	dest := []interface{}{
+		&m.userID,
+		&m.public,
+		&m.hidden,
+		&createDate,
+		&m.momentID,
+		&m.latitude,
+		&m.longitude,
+		&md.message,
+		&md.mType,
+		&md.dir,
+		&findDate,
+	}
+
+	rm := make(ResultsMap, 0)
+	for rows.Next() {
+		if err = rows.Scan(dest...); err != nil {
+			return
+		}
+		m.createDate, err = dba.ParseDateTime2(createDate)
+		if err != nil {
+			return
+		}
+		f.findDate, err = dba.ParseDateTime2(findDate)
+		if err != nil {
+			return
+		}
+
+		if rm.exists(m) {
+			if err = rm.append(m, md, f); err != nil {
+				return
+			}
+		} else {
+			if err = rm.add(m, md, f); err != nil {
+				return
+			}
+		}
+	}
+	r = rm.slice()
+	return
+
+}
+
 func lostResults(rows *sql.Rows) (r Results, err error) {
 	m := new(MomentsRow)
 	dest := []interface{}{
@@ -1404,7 +1643,7 @@ func lostResults(rows *sql.Rows) (r Results, err error) {
 		&m.longitude,
 	}
 
-	rf = make(Results, 0)
+	r = make(Results, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
@@ -1412,19 +1651,11 @@ func lostResults(rows *sql.Rows) (r Results, err error) {
 		newR := &Result{
 			moment: m,
 		}
-		rf = append(r, newR)
+		r = append(r, newR)
 	}
 
 	return
 }
-
-//func UserLeft(me string) (s *Select, err error) {
-//	return
-//}
-//
-//func UserFound(me string) (s *Select, err error) {
-//	return
-//}
 
 // searchPublic queries Moment-Db for moments that are public and not hidden.
 //func searchPublic(l Location) (resultSet []Result, err error) {
