@@ -470,6 +470,10 @@ func TestFindsRowFindPublic(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, int64(single), cnt)
 
+	cnt, err = f.delete(nil)
+	assert.Nil(t, err)
+	assert.Equal(t, int64(single), cnt)
+
 	MomentsRowDeletePublic(t, r)
 }
 
@@ -499,7 +503,8 @@ func TestLocationShared(t *testing.T) {
 	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
-	res, err := LocationShared(l, TestUser+"0")
+	resM, err := LocationShared(l, TestUser+"0")
+	res := resM.mapToSlice()
 	t.Log(res)
 	assert.Nil(t, err)
 	assert.Equal(t, TestUser, res[0].moment.userID)
@@ -520,7 +525,8 @@ func TestLocationPublic(t *testing.T) {
 	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
-	res, err := LocationPublic(l)
+	resM, err := LocationPublic(l)
+	res := resM.mapToSlice()
 	assert.Nil(t, err)
 	assert.Equal(t, TestUser, res[0].moment.userID)
 	assert.Equal(t, lat, res[0].moment.latitude)
@@ -539,7 +545,8 @@ func TestLocationHidden(t *testing.T) {
 	l, err := NewLocation(lat, long)
 	assert.Nil(t, err)
 
-	res, err := LocationHidden(l)
+	resM, err := LocationHidden(l)
+	res := resM.mapToSlice()
 	assert.Nil(t, err)
 	assert.Equal(t, lat, res[0].moment.latitude)
 	assert.Equal(t, long, res[0].moment.longitude)
@@ -554,11 +561,96 @@ func TestLocationLost(t *testing.T) {
 	assert.Nil(t, err)
 
 	me := TestUser + "1"
-	res, err := LocationLost(l, me)
-	t.Logf("res = %v\n", res)
+	resM, err := LocationLost(l, me)
+	res := resM.mapToSlice()
 	assert.Nil(t, err)
 	assert.Equal(t, lat, res[0].moment.latitude)
 	assert.Equal(t, long, res[0].moment.longitude)
+
+	MomentsRowDeletePrivate(t, r)
+}
+
+func TestUserShared(t *testing.T) {
+	r := MomentsRowCreatePrivate(t)
+
+	f := r.finds[0]
+	s, err := NewShare(f.momentID, f.userID, true, TestEmptyUser)
+	assert.Nil(t, err)
+
+	f2 := r.finds[1]
+	s2, err := NewShare(f2.momentID, f2.userID, false, f.userID)
+	assert.Nil(t, err)
+
+	sS := make(Shares, 2)
+	sS[0] = s
+	sS[1] = s2
+
+	cnt, err := sS.Share()
+	assert.Nil(t, err)
+	assert.Equal(t, int64(2), cnt)
+
+	t.Run("1", func(t *testing.T) {
+		resM, err := UserShared(TestUser, f.userID)
+		res := resM.mapToSlice()
+		assert.Nil(t, err)
+		assert.Equal(t, TestUser, res[0].moment.userID)
+		assert.Equal(t, lat, res[0].moment.latitude)
+		assert.Equal(t, long, res[0].moment.longitude)
+		assert.Equal(t, uint8(DNE), res[0].media[0].mType)
+		assert.Equal(t, "HelloWorld", res[0].media[0].message)
+		assert.Equal(t, "", res[0].media[0].dir)
+	})
+
+	t.Run("2", func(t *testing.T) {
+		resM, err := UserShared(f.userID, f2.userID)
+		res := resM.mapToSlice()
+		assert.Nil(t, err)
+		assert.Equal(t, TestUser, res[0].moment.userID)
+		assert.Equal(t, lat, res[0].moment.latitude)
+		assert.Equal(t, long, res[0].moment.longitude)
+		assert.Equal(t, uint8(DNE), res[0].media[0].mType)
+		assert.Equal(t, "HelloWorld", res[0].media[0].message)
+		assert.Equal(t, "", res[0].media[0].dir)
+	})
+
+	subTestSharesRowDelete(t, sS)
+	MomentsRowDeletePrivate(t, r)
+}
+
+func TestUserLeft(t *testing.T) {
+	r := MomentsRowCreatePrivate(t)
+
+	t.Run("1", func(t *testing.T) {
+		resM, err := UserLeft(TestUser)
+		assert.Nil(t, err)
+		res := resM.mapToSlice()
+		assert.Equal(t, single, len(res))
+		assert.Equal(t, 10, len(res[0].finds))
+		assert.Equal(t, single, len(res[0].media))
+	})
+
+	MomentsRowDeletePrivate(t, r)
+}
+
+func TestUserFound(t *testing.T) {
+	r := MomentsRowCreatePrivate(t)
+
+	err := r.finds[0].FindPrivate()
+	assert.Nil(t, err)
+
+	t.Run("1", func(t *testing.T) {
+		resM, err := UserFound(r.finds[0].userID)
+		assert.Nil(t, err)
+		res := resM.mapToSlice()
+		assert.Equal(t, single, len(res))
+	})
+
+	t.Run("2", func(t *testing.T) {
+		resM, err := UserFound(r.finds[1].userID)
+		assert.Nil(t, err)
+		res := resM.mapToSlice()
+		assert.Equal(t, 0, len(res))
+	})
 
 	MomentsRowDeletePrivate(t, r)
 }

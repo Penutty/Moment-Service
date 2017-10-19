@@ -376,29 +376,11 @@ func (m *MediaRow) delete(c *dba.Trans) (rowCnt int64, err error) {
 	return
 }
 
-// MediaMap is a map of pointers to MediaRow instances.
-type MediaMap map[int64]*MediaRow
-
-// add inserts a pointer to a MediaRow instance into the MediaMap receiver.
-func (mp MediaMap) add(md *MediaRow) (err error) {
-	if util.IsEmpty(md) {
-		return ErrorVariableEmpty
-	}
-	mp[md.mType] = md
-	return
-}
-
-// exists checks if the specified MediaRow instance is already in the MediaMap receiver.
-func (mp MediaMap) exists(md *MediaRow) bool {
-	_, ok := mp[md.mType]
-	return ok
-}
-
 // Media is a set of pointers to MediaRow instances.
 type Media []*MediaRow
 
 // insert inserts a set of MediaRow instances into the [Moment-Db].[moment].[Media] table.
-func (mSet *Media) insert(c *dba.Trans) (rowCnt int64, err error) {
+func (mSet Media) insert(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -421,8 +403,8 @@ func (mSet *Media) insert(c *dba.Trans) (rowCnt int64, err error) {
 }
 
 // values returns a string of parameterized values for an Media Insert query.
-func (mSet *Media) values() (values string) {
-	vSlice := make([]string, len(*mSet))
+func (mSet Media) values() (values string) {
+	vSlice := make([]string, len(mSet))
 	for i := 0; i < len(vSlice); i++ {
 		vSlice[i] = "(?, ?, ?, ?)"
 	}
@@ -432,11 +414,11 @@ func (mSet *Media) values() (values string) {
 }
 
 // args returns an slice of empty interfaces that hold the arguments for a parameterized query.
-func (mSet *Media) args() (args []interface{}) {
+func (mSet Media) args() (args []interface{}) {
 	fCnt := 4
-	argsCnt := len(*mSet) * fCnt
+	argsCnt := len(mSet) * fCnt
 	args = make([]interface{}, argsCnt)
-	for i, m := range *mSet {
+	for i, m := range mSet {
 		j := i * 4
 		args[j] = m.momentID
 		args[j+1] = m.message
@@ -447,12 +429,12 @@ func (mSet *Media) args() (args []interface{}) {
 }
 
 // delete deletes a set of MediaRows from the [Moment-Db].[moment].[Media] table.
-func (mSet *Media) delete() (rowCnt int64, err error) {
+func (mSet Media) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
 	var affCnt int64
-	for _, m := range *mSet {
+	for _, m := range mSet {
 		affCnt, err = m.delete(c)
 		if err != nil {
 			rowCnt = 0
@@ -552,28 +534,11 @@ func (f *FindsRow) delete(c *dba.Trans) (rowsAff int64, err error) {
 	return
 }
 
-// FindsMap is a map of pointers to FindsRow instances.
-type FindsMap map[int64]*FindsRow
-
-// add inserts a pointer to a FindsRow instance into the Findsmap receiver.
-func (fm FindsMap) add(f *FindsRow) (err error) {
-	if util.IsEmpty(f) {
-		return ErrorVariableEmpty
-	}
-	fm[f.userID] = f
-}
-
-// exists checks if the f *FindsRow exists in the FindsMap receiver.
-func (fm FindsMap) exists(f *FindsRow) bool {
-	_, ok := fm[f.userID]
-	return ok
-}
-
 // Finds is a slice of pointers to FindsRow instances.
 type Finds []*FindsRow
 
 // insert inserts a Finds instance into the [Moment-Db].[moment].[Finds] table.
-func (fSet *Finds) insert(c *dba.Trans) (rowCnt int64, err error) {
+func (fSet Finds) insert(c *dba.Trans) (rowCnt int64, err error) {
 	if c == nil {
 		c = dba.OpenTx()
 		defer func() { c.Close(err) }()
@@ -597,9 +562,9 @@ func (fSet *Finds) insert(c *dba.Trans) (rowCnt int64, err error) {
 }
 
 // values returns a string of parameterized values for an Finds Insert query.
-func (fSet *Finds) values() (values string) {
-	vSlice := make([]string, len(*fSet))
-	for i := 0; i < len(*fSet); i++ {
+func (fSet Finds) values() (values string) {
+	vSlice := make([]string, len(fSet))
+	for i := 0; i < len(fSet); i++ {
 		vSlice[i] = "(?, ?, ?, ?)"
 	}
 	values = strings.Join(vSlice, ", ")
@@ -608,12 +573,12 @@ func (fSet *Finds) values() (values string) {
 }
 
 // args returns an slice of empty interfaces that hold the arguments for a parameterized query.
-func (fSet *Finds) args() (args []interface{}, err error) {
+func (fSet Finds) args() (args []interface{}, err error) {
 	findFieldCnt := 4
-	argsCnt := len(*fSet) * findFieldCnt
+	argsCnt := len(fSet) * findFieldCnt
 	args = make([]interface{}, argsCnt)
 
-	for i, f := range *fSet {
+	for i, f := range fSet {
 		j := 4 * i
 		args[j] = f.momentID
 		args[j+1] = f.userID
@@ -625,12 +590,12 @@ func (fSet *Finds) args() (args []interface{}, err error) {
 }
 
 // delete deletes a Finds instance from the [Moment-Db].[moment].[Finds] table.
-func (fSet *Finds) delete() (rowCnt int64, err error) {
+func (fSet Finds) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
 	var rAff int64
-	for _, f := range *fSet {
+	for _, f := range fSet {
 		rAff, err = f.delete(c)
 		if err != nil {
 			rowCnt = 0
@@ -686,30 +651,12 @@ func (s *SharesRow) delete(c *dba.Trans) (affCnt int64, err error) {
 	return
 }
 
-// SharesMap is a map of pointers to SharesRow instances.
-type SharesMap map[int64]*SharesRow
-
-// add inserts a pointer to a SharesRow instance into the SharesMap receiver.
-func (sm SharesMap) add(s *SharesRow) (err error) {
-	if util.IsEmpty(s) {
-		return ErrorVariableEmpty
-	}
-	sm[s.userID] = s
-	return
-}
-
-// exists checks if the specified SharesRow instance is already in the SharesMap receiver.
-func (sm SharesMap) exists(s *SharesRow) bool {
-	_, ok := sm[s.userID]
-	return ok
-}
-
 // Shares is a slice of pointers to SharesRow instances.
 type Shares []*SharesRow
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) Share() (rowCnt int64, err error) {
+func (sSlice Shares) Share() (rowCnt int64, err error) {
 	rowCnt, err = sSlice.insert()
 	if err != nil {
 		return
@@ -718,7 +665,7 @@ func (sSlice *Shares) Share() (rowCnt int64, err error) {
 }
 
 // insert inserts a Shares instance into [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) insert() (rowCnt int64, err error) {
+func (sSlice Shares) insert() (rowCnt int64, err error) {
 	c := dba.OpenConn()
 	defer c.Db.Close()
 
@@ -738,8 +685,8 @@ func (sSlice *Shares) insert() (rowCnt int64, err error) {
 }
 
 // values returns a string of parameterized values for a Shares insert query.
-func (sSlice *Shares) values() (values string) {
-	valuesSlice := make([]string, len(*sSlice))
+func (sSlice Shares) values() (values string) {
+	valuesSlice := make([]string, len(sSlice))
 	for i := 0; i < len(valuesSlice); i++ {
 		valuesSlice[i] = "(?, ?, ?, ?)"
 	}
@@ -748,12 +695,12 @@ func (sSlice *Shares) values() (values string) {
 }
 
 // args returns an slice of empty interfaces that hold the arguments for a parameterized query.
-func (sSlice *Shares) args() (args []interface{}) {
+func (sSlice Shares) args() (args []interface{}) {
 	SharesFieldCnt := 4
-	argsCnt := len(*sSlice) * SharesFieldCnt
+	argsCnt := len(sSlice) * SharesFieldCnt
 	args = make([]interface{}, argsCnt)
 
-	for i, s := range *sSlice {
+	for i, s := range sSlice {
 		j := i * 4
 		args[j] = s.momentID
 		args[j+1] = s.userID
@@ -765,12 +712,12 @@ func (sSlice *Shares) args() (args []interface{}) {
 }
 
 // delete deletes an instance of Shares from the [Moment-Db].[moment].[Shares] table.
-func (sSlice *Shares) delete() (rowCnt int64, err error) {
+func (sSlice Shares) delete() (rowCnt int64, err error) {
 	c := dba.OpenTx()
 	defer func() { c.Close(err) }()
 
 	var affCnt int64
-	for _, s := range *sSlice {
+	for _, s := range sSlice {
 		affCnt, err = s.delete(c)
 		if err != nil {
 			rowCnt = 0
@@ -962,30 +909,50 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 	return
 }
 
+// Result is grouping of a *MomentsRow with its related *FindsRow(s), *MediaRow(s), and *SharesRow(s).
 type Result struct {
+	moment *MomentsRow
+	finds  Finds
+	media  Media
+	shares Shares
+}
+
+// Results is a slice of *Result.
+type Results []*Result
+
+// ResultMap is a grouping of a *MomentsRow and mappingts to its related *FindsRow(s), *MediaRow(s), and *SharesRow(s).
+type ResultMap struct {
 	moment *MomentsRow
 	finds  FindsMap
 	media  MediaMap
 	shares SharesMap
 }
 
-type Results []*Result
-type ResultsMap map[int64]*Result
+// ResultsMap is a mapping of *MomentsRow.momentId to a *Result
+type ResultsMap map[int64]*ResultMap
 
 var ErrorTypeNotImplemented = errors.New("Type switch does not handle specified type.")
 
-func (rm ResultsMap) add(mRow *MomentsRow, rs ...resultSet) (err error) {
-	r := new(Result)
+func (rm ResultsMap) add(mRow *MomentsRow, rs ...interface{}) (err error) {
+	r := new(ResultMap)
 	r.moment = mRow
 	for _, i := range rs {
 		switch v := i.(type) {
 		case *MediaRow:
-			r.
-				r.media = Media{v}
+			r.media = make(MediaMap)
+			if err = r.media.add(v); err != nil {
+				return
+			}
 		case *FindsRow:
-			r.finds = Finds{v}
+			r.finds = make(FindsMap)
+			if err = r.finds.add(v); err != nil {
+				return
+			}
 		case *SharesRow:
-			r.shares = Shares{v}
+			r.shares = make(SharesMap)
+			if err = r.shares.add(v); err != nil {
+				return
+			}
 		default:
 			return ErrorTypeNotImplemented
 		}
@@ -1002,11 +969,23 @@ func (rs ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
 	for _, i := range is {
 		switch v := i.(type) {
 		case *MediaRow:
-			rs[mID].media = append(rs[mID].media, v)
+			if !rs[mID].media.exists(v) {
+				if err = rs[mID].media.add(v); err != nil {
+					return
+				}
+			}
 		case *FindsRow:
-			rs[mID].finds = append(rs[mID].finds, v)
+			if !rs[mID].finds.exists(v) {
+				if err = rs[mID].finds.add(v); err != nil {
+					return
+				}
+			}
 		case *SharesRow:
-			rs[mID].shares = append(rs[mID].shares, v)
+			if !rs[mID].shares.exists(v) {
+				if err = rs[mID].shares.add(v); err != nil {
+					return
+				}
+			}
 		default:
 			return ErrorTypeNotImplemented
 		}
@@ -1014,12 +993,135 @@ func (rs ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
 	return
 }
 
-func (rs ResultsMap) slice() (r Results) {
+func (rs ResultsMap) mapToSlice() (r Results) {
 	r = make(Results, len(rs))
-	var i int
+	i := 0
 	for _, v := range rs {
-		r[i] = v
+		newR := &Result{
+			moment: v.moment,
+			media:  v.media.mapToSlice(),
+			finds:  v.finds.mapToSlice(),
+			shares: v.shares.mapToSlice(),
+		}
+		r[i] = newR
 		i++
+	}
+	return
+}
+
+// SharesMap is a map of pointers to SharesRow instances.
+type SharesMap map[[2]string]*SharesRow
+
+// add inserts a pointer to a SharesRow instance into the SharesMap receiver.
+func (sm SharesMap) add(s *SharesRow) (err error) {
+	if util.IsEmpty(s) {
+		return ErrorVariableEmpty
+	}
+	index := [2]string{s.userID, s.recipientID}
+	sm[index] = s
+	return
+}
+
+// exists checks if the specified SharesRow instance is already in the SharesMap receiver.
+func (sm SharesMap) exists(s *SharesRow) bool {
+	index := [2]string{s.userID, s.recipientID}
+	_, ok := sm[index]
+	return ok
+}
+
+// mapToSlice converts a SharesMap instance into a Shares instance.
+func (sm SharesMap) mapToSlice() (s Shares) {
+	s = make(Shares, len(sm))
+	var i int
+	for _, v := range sm {
+		s[i] = v
+		i++
+	}
+	return
+}
+
+// sliceToMap converts a Shares instance to a SharesMap instance
+func (s Shares) sliceToMap() (sm SharesMap) {
+	sm = make(SharesMap)
+	for _, v := range s {
+		index := [2]string{v.userID, v.recipientID}
+		sm[index] = v
+	}
+	return
+}
+
+// FindsMap is a map of pointers to FindsRow instances.
+type FindsMap map[string]*FindsRow
+
+// add inserts a pointer to a FindsRow instance into the Findsmap receiver.
+func (fm FindsMap) add(f *FindsRow) (err error) {
+	if util.IsEmpty(f) {
+		return ErrorVariableEmpty
+	}
+	fm[f.userID] = f
+	return
+}
+
+// exists checks if the f *FindsRow exists in the FindsMap receiver.
+func (fm FindsMap) exists(f *FindsRow) bool {
+	_, ok := fm[f.userID]
+	return ok
+}
+
+// mapToSlice converts a FindsMap instance into a Finds instance.
+func (fm FindsMap) mapToSlice() (f Finds) {
+	f = make(Finds, len(fm))
+	var i int
+	for _, v := range fm {
+		f[i] = v
+		i++
+	}
+	return
+}
+
+// sliceToMap converts a Shares instance into a SharesMap instance.
+func (f Finds) sliceToMap() (fm FindsMap) {
+	fm = make(FindsMap)
+	for _, v := range f {
+		fm[v.userID] = v
+	}
+	return
+}
+
+// MediaMap is a map of pointers to MediaRow instances.
+type MediaMap map[uint8]*MediaRow
+
+// add inserts a pointer to a MediaRow instance into the MediaMap receiver.
+func (mp MediaMap) add(md *MediaRow) (err error) {
+	if util.IsEmpty(md) {
+		return ErrorVariableEmpty
+	}
+	mp[md.mType] = md
+	return
+}
+
+// exists checks if the specified MediaRow instance is already in the MediaMap receiver.
+func (mp MediaMap) exists(md *MediaRow) bool {
+	_, ok := mp[md.mType]
+	return ok
+}
+
+// mapToSlice converts a MediaMap instance into a Media instance.
+func (mm MediaMap) mapToSlice() (m Media) {
+	m = make(Media, len(mm))
+	var i int
+	for _, v := range mm {
+		m[i] = v
+		i++
+	}
+	return
+}
+
+// sliceToMap converts a Media instance into MediaMap instance.
+func (m Media) sliceToMap() (mm MediaMap) {
+	mm = make(MediaMap)
+	for _, v := range m {
+		mm[v.mType] = v
 	}
 	return
 }
@@ -1094,7 +1196,7 @@ func momentsWherePrivate() (w *dba.Where, err error) {
 }
 
 func momentsWhereUserID(u string) (w *dba.Where, err error) {
-	w, err = dba.NewWhere("AND", momentAlias+".UserID = ?", []interface{}{u})
+	w, err = dba.NewWhere("", momentAlias+".UserID = ?", []interface{}{u})
 	return
 }
 
@@ -1211,7 +1313,7 @@ func lostQuery() (q *dba.Query, err error) {
 	return
 }
 
-func LocationShared(l *Location, me string) (r Results, err error) {
+func LocationShared(l *Location, me string) (r ResultsMap, err error) {
 	if util.IsEmpty(l) || util.IsEmpty(me) {
 		return r, ErrorVariableEmpty
 	}
@@ -1247,7 +1349,7 @@ func LocationShared(l *Location, me string) (r Results, err error) {
 	return
 }
 
-func LocationPublic(l *Location) (r Results, err error) {
+func LocationPublic(l *Location) (r ResultsMap, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorVariableEmpty
 	}
@@ -1276,7 +1378,7 @@ func LocationPublic(l *Location) (r Results, err error) {
 	return
 }
 
-func LocationHidden(l *Location) (r Results, err error) {
+func LocationHidden(l *Location) (r ResultsMap, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorLocationIsNil
 	}
@@ -1306,7 +1408,7 @@ func LocationHidden(l *Location) (r Results, err error) {
 	return
 }
 
-func LocationLost(l *Location, me string) (r Results, err error) {
+func LocationLost(l *Location, me string) (r ResultsMap, err error) {
 	if util.IsEmpty(l) {
 		return r, ErrorLocationIsNil
 	}
@@ -1350,7 +1452,7 @@ func LocationLost(l *Location, me string) (r Results, err error) {
 	return
 }
 
-func UserShared(me string, u string) (r Results, err error) {
+func UserShared(me string, u string) (r ResultsMap, err error) {
 	if util.IsEmpty(me) || util.IsEmpty(u) {
 		return r, ErrorVariableEmpty
 	}
@@ -1381,7 +1483,7 @@ func UserShared(me string, u string) (r Results, err error) {
 	return
 }
 
-func UserLeft(me string) (r Results, err error) {
+func UserLeft(me string) (r ResultsMap, err error) {
 	if util.IsEmpty(me) {
 		return r, ErrorVariableEmpty
 	}
@@ -1419,7 +1521,7 @@ func UserLeft(me string) (r Results, err error) {
 	return
 }
 
-func UserFound(me string) (r Results, err error) {
+func UserFound(me string) (r ResultsMap, err error) {
 	if util.IsEmpty(me) {
 		return r, ErrorVariableEmpty
 	}
@@ -1461,7 +1563,7 @@ var (
 	ErrorQueryStringEmpty = errors.New("Empty string passed into queryString parameter.")
 )
 
-func process(query *dba.Query, rowHandler func(*sql.Rows) (Results, error)) (r Results, err error) {
+func process(query *dba.Query, rowHandler func(*sql.Rows) (ResultsMap, error)) (r ResultsMap, err error) {
 	if util.IsEmpty(query) {
 		return r, ErrorVariableEmpty
 	}
@@ -1470,7 +1572,6 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (Results, error)) (r R
 	if err != nil {
 		return
 	}
-	fmt.Printf("queryString: %v\n", queryString)
 
 	c := dba.OpenConn()
 	defer c.Db.Close()
@@ -1496,7 +1597,7 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (Results, error)) (r R
 	return
 }
 
-func momentsResults(rows *sql.Rows) (r Results, err error) {
+func momentsResults(rows *sql.Rows) (rm ResultsMap, err error) {
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1514,7 +1615,7 @@ func momentsResults(rows *sql.Rows) (r Results, err error) {
 		&md.dir,
 	}
 
-	rm := make(ResultsMap, 0)
+	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
@@ -1535,11 +1636,10 @@ func momentsResults(rows *sql.Rows) (r Results, err error) {
 			}
 		}
 	}
-	r = rm.slice()
 	return
 }
 
-func leftResults(rows *sql.Rows) (r Results, err error) {
+func leftResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
@@ -1559,7 +1659,7 @@ func leftResults(rows *sql.Rows) (r Results, err error) {
 		&findDate,
 	}
 
-	rm := make(ResultsMap, 0)
+	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
@@ -1583,11 +1683,10 @@ func leftResults(rows *sql.Rows) (r Results, err error) {
 			}
 		}
 	}
-	r = rm.slice()
 	return
 }
 
-func foundResults(rows *sql.Rows) (r Results, err error) {
+func foundResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
@@ -1606,7 +1705,7 @@ func foundResults(rows *sql.Rows) (r Results, err error) {
 		&findDate,
 	}
 
-	rm := make(ResultsMap, 0)
+	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
@@ -1630,12 +1729,11 @@ func foundResults(rows *sql.Rows) (r Results, err error) {
 			}
 		}
 	}
-	r = rm.slice()
 	return
 
 }
 
-func lostResults(rows *sql.Rows) (r Results, err error) {
+func lostResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	m := new(MomentsRow)
 	dest := []interface{}{
 		&m.momentID,
@@ -1643,15 +1741,15 @@ func lostResults(rows *sql.Rows) (r Results, err error) {
 		&m.longitude,
 	}
 
-	r = make(Results, 0)
+	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			return
 		}
-		newR := &Result{
+		newR := &ResultMap{
 			moment: m,
 		}
-		r = append(r, newR)
+		rm[m.momentID] = newR
 	}
 
 	return
