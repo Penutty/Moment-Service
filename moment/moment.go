@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/penutty/dba"
 	"github.com/penutty/util"
+	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +41,28 @@ const (
 )
 
 var (
+	Info  *log.Logger
+	Warn  *log.Logger
+	Error *log.Logger
+)
+
+func init() {
+	Logger := func(logType string) *log.Logger {
+		file := "/home/tjp/go/log/" + logType + ".txt"
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}
+
+		return log.New(f, strings.ToUpper(logType)+": ", log.Lshortfile|log.LUTC)
+	}
+
+	Info = Logger("info")
+	Warn = Logger("warn")
+	Error = Logger("error")
+}
+
+var (
 	ErrorPrivateHiddenMoment = errors.New("m *MomentsRow cannot be both private and hidden")
 	ErrorVariableEmpty       = errors.New("Variable is empty.")
 )
@@ -47,41 +71,57 @@ var (
 func NewMoment(l *Location, uID string, p bool, h bool, c *time.Time) (m *MomentsRow, err error) {
 	m = new(MomentsRow)
 
-	if err = m.setLocation(l); err != nil {
-		return
+	m.setLocation(l)
+	m.setCreateDate(c)
+	m.setUserID(uID)
+	if m.err != nil {
+		Error.Println(m.err)
+		return m, m.err
 	}
-	if err = m.setUserID(uID); err != nil {
-		return
-	}
-	if err = m.setCreateDate(c); err != nil {
-		return
-	}
+
 	m.hidden = h
 	m.public = p
-
 	if m.hidden && !m.public {
+		Error.Println(ErrorPrivateHiddenMoment)
 		return m, ErrorPrivateHiddenMoment
 	}
 
-	return
-
+	return m, m.err
 }
 
 var ErrorLocationIsNil = errors.New("l *Location is nil")
 
-func (m *MomentsRow) setLocation(l *Location) (err error) {
+func (m *MomentsRow) setLocation(l *Location) {
+	if m.err != nil {
+		return
+	}
+
 	if l == nil {
-		return ErrorLocationIsNil
+		m.err = ErrorLocationIsNil
+		return
 	}
 	m.Location = *l
 	return
 }
 
-func (m *MomentsRow) setCreateDate(t *time.Time) (err error) {
-	if err = checkTime(t); err != nil {
-		return err
+func (m *MomentsRow) setCreateDate(t *time.Time) {
+	if m.err != nil {
+		return
+	}
+
+	if err := checkTime(t); err != nil {
+		m.err = err
+		return
 	}
 	m.createDate = t
+	return
+}
+
+func (m *MomentsRow) setUserID(u string) {
+	if m.err != nil {
+		return
+	}
+	m.err = m.uID.setUserID(u)
 	return
 }
 
@@ -93,21 +133,22 @@ var ErrorMessageLong = errors.New("m must be >= " + strconv.Itoa(minMessage) + "
 func NewMedia(mID int64, m string, mType uint8, d string) (mr *MediaRow, err error) {
 	mr = new(MediaRow)
 
-	if err = mr.setMomentID(mID); err != nil {
-		return
+	mr.setMomentID(mID)
+	mr.setMessage(m)
+	mr.setmType(mType)
+	if mr.err != nil {
+		Error.Println(mr.err)
+		return mr, mr.err
 	}
-	if err = mr.setMessage(m); err != nil {
-		return
-	}
-	if err = mr.setmType(mType); err != nil {
-		return
-	}
+
 	mr.dir = d
 
 	if mr.mType == DNE && mr.dir != "" {
+		Error.Println(ErrorMediaDNE)
 		return mr, ErrorMediaDNE
 	}
 	if mr.mType != DNE && mr.dir == "" {
+		Error.Println(ErrorMediaExistsDirDNE)
 		return mr, ErrorMediaExistsDirDNE
 	}
 
@@ -115,19 +156,37 @@ func NewMedia(mID int64, m string, mType uint8, d string) (mr *MediaRow, err err
 }
 
 // setMediaType ensures that t is a value between minMediaType and maxMediaType.
-func (m *MediaRow) setmType(t uint8) (err error) {
-	if err = checkMediaType(t); err != nil {
-		return err
+func (mr *MediaRow) setmType(t uint8) {
+	if mr.err != nil {
+		return
 	}
-	m.mType = t
+	if err := checkMediaType(t); err != nil {
+		mr.err = err
+		return
+	}
+
+	mr.mType = t
 	return
 }
 
-func (mr *MediaRow) setMessage(m string) (err error) {
-	if l := len(m); l > maxMessage {
-		return ErrorMessageLong
+func (mr *MediaRow) setMessage(m string) {
+	if mr.err != nil {
+		return
 	}
+	if l := len(m); l > maxMessage {
+		mr.err = ErrorMessageLong
+		return
+	}
+
 	mr.message = m
+	return
+}
+
+func (mr *MediaRow) setMomentID(mID int64) {
+	if mr.err != nil {
+		return
+	}
+	mr.err = mr.mID.setMomentID(mID)
 	return
 }
 
@@ -138,33 +197,51 @@ var ErrorNotFoundFindDateExists = errors.New("fr.found=false, therefore fr.findD
 func NewFind(mID int64, uID string, f bool, fd *time.Time) (fr *FindsRow, err error) {
 	fr = new(FindsRow)
 
-	if err = fr.setMomentID(mID); err != nil {
-		return
+	fr.setMomentID(mID)
+	fr.setUserID(uID)
+	fr.setFindDate(fd)
+	if fr.err != nil {
+		Error.Println(fr.err)
+		return fr, fr.err
 	}
-	if err = fr.setUserID(uID); err != nil {
-		return
-	}
-	if err = fr.setFindDate(fd); err != nil {
-		return
-	}
+
 	fr.found = f
 
 	emptyTime := time.Time{}
 	if fr.found && *fr.findDate == emptyTime {
+		Error.Println(ErrorFoundEmptyFindDate)
 		return fr, ErrorFoundEmptyFindDate
 	}
 	if !fr.found && *fr.findDate != emptyTime {
+		Error.Println(ErrorNotFoundFindDateExists)
 		return fr, ErrorNotFoundFindDateExists
 	}
 
 	return
 }
 
-func (f *FindsRow) setFindDate(fd *time.Time) (err error) {
-	if err = checkTime(fd); err != nil {
+func (f *FindsRow) setFindDate(fd *time.Time) {
+	if err := checkTime(fd); err != nil {
+		f.err = err
 		return
 	}
 	f.findDate = fd
+	return
+}
+
+func (f *FindsRow) setMomentID(mID int64) {
+	if f.err != nil {
+		return
+	}
+	f.err = f.mID.setMomentID(mID)
+	return
+}
+
+func (f *FindsRow) setUserID(uID string) {
+	if f.err != nil {
+		return
+	}
+	f.err = f.uID.setUserID(uID)
 	return
 }
 
@@ -175,65 +252,93 @@ var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID m
 func NewShare(mID int64, uID string, all bool, r string) (s *SharesRow, err error) {
 	s = new(SharesRow)
 
-	if err = s.setMomentID(mID); err != nil {
-		return
+	s.setMomentID(mID)
+	s.setUserID(uID)
+	s.setRecipientID(r)
+	if s.err != nil {
+		Error.Println(s.err)
+		return s, s.err
 	}
-	if err = s.setUserID(uID); err != nil {
-		return
-	}
-	if err = s.setRecipientID(r); err != nil {
-		return
-	}
+
 	s.all = all
 
 	if s.all && s.recipientID != "" {
+		Error.Println(ErrorAllRecipientExists)
 		return s, ErrorAllRecipientExists
 	}
 	if !s.all && s.recipientID == "" {
+		Error.Println(ErrorNotAllRecipientDNE)
 		return s, ErrorNotAllRecipientDNE
 	}
 
 	return
 }
 
-func (s *SharesRow) setRecipientID(id string) (err error) {
-	if err = checkUserIDLong(id); err != nil {
+func (s *SharesRow) setRecipientID(id string) {
+	if s.err != nil {
+		return
+	}
+
+	if err := checkUserIDLong(id); err != nil {
+		s.err = err
 		return
 	}
 	s.recipientID = id
 	return
 }
 
+func (s *SharesRow) setMomentID(mID int64) {
+	if s.err != nil {
+		return
+	}
+	s.err = s.mID.setMomentID(mID)
+}
+
+func (s *SharesRow) setUserID(uID string) {
+	if s.err != nil {
+		return
+	}
+	s.err = s.uID.setUserID(uID)
+}
+
 var ErrorLatitude = errors.New("Latitude must be between -180 and 180.")
 var ErrorLongitude = errors.New("Longitude must be between -90 and 90.")
 
 // NewLocation is a constructor for the Location struct.
-func NewLocation(lat float32, long float32) (lo *Location, err error) {
-	lo = new(Location)
+func NewLocation(lat float32, long float32) (*Location, error) {
+	lo := new(Location)
 
-	if err = lo.setLatitude(lat); err != nil {
-		return
-	}
-	if err = lo.setLongitude(long); err != nil {
-		return
+	lo.setLatitude(lat)
+	lo.setLongitude(long)
+	if lo.err != nil {
+		Error.Println(lo.err)
+		return lo, lo.err
 	}
 
-	return
+	return lo, lo.err
 }
 
 // setLatitude ensures that the values of l is between minLat and maxLat.
-func (lo *Location) setLatitude(l float32) (err error) {
+func (lo *Location) setLatitude(l float32) {
+	if lo.err != nil {
+		return
+	}
 	if l < minLat || l > maxLat {
-		err = ErrorLatitude
+		lo.err = ErrorLatitude
+		return
 	}
 	lo.latitude = l
 	return
 }
 
 // setLongitude ensures that the values of l is between minLong and maxLong.
-func (lo *Location) setLongitude(l float32) (err error) {
+func (lo *Location) setLongitude(l float32) {
+	if lo.err != nil {
+		return
+	}
 	if l < minLong || l > maxLong {
-		err = ErrorLongitude
+		lo.err = ErrorLongitude
+		return
 	}
 	lo.longitude = l
 	return
@@ -346,6 +451,7 @@ type MediaRow struct {
 	message string
 	mType   uint8
 	dir     string
+	err     error
 }
 
 // String returns the string representation of a MediaRow instance.
@@ -367,10 +473,15 @@ func (m *MediaRow) delete(c *dba.Trans) (rowCnt int64, err error) {
 
 	res, err := c.Tx.Exec(deleteFrom, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	cnt, err := res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 	rowCnt = int64(cnt)
 
 	return
@@ -394,9 +505,14 @@ func (mSet Media) insert(c *dba.Trans) (rowCnt int64, err error) {
 
 	res, err := c.Tx.Exec(query, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	cnt, err := res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 	rowCnt = int64(cnt)
 
 	return
@@ -437,6 +553,7 @@ func (mSet Media) delete() (rowCnt int64, err error) {
 	for _, m := range mSet {
 		affCnt, err = m.delete(c)
 		if err != nil {
+			Error.Println(err)
 			rowCnt = 0
 			return
 		}
@@ -452,6 +569,7 @@ type FindsRow struct {
 	uID
 	found    bool
 	findDate *time.Time
+	err      error
 }
 
 // String returns the string representation of FindsRow
@@ -471,6 +589,7 @@ var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true 
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
 func (f *FindsRow) FindPublic() (cnt int64, err error) {
 	if f.userID == "" || f.momentID == 0 {
+		Error.Println(ErrorVariableEmpty)
 		return 0, ErrorVariableEmpty
 	}
 
@@ -484,15 +603,20 @@ func (f *FindsRow) FindPublic() (cnt int64, err error) {
 
 	res, err := c.Db.Exec(insert, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	cnt, err = res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
 // FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
 func (f *FindsRow) FindPrivate() (err error) {
 	if f.userID == "" || f.momentID == 0 {
+		Error.Println(ErrorVariableEmpty)
 		return ErrorVariableEmpty
 	}
 
@@ -509,10 +633,13 @@ func (f *FindsRow) FindPrivate() (err error) {
 
 	res, err := c.Db.Exec(updateFindsRow, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	err = dba.ValidateRowsAffected(res, 1)
-
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -529,7 +656,16 @@ func (f *FindsRow) delete(c *dba.Trans) (rowsAff int64, err error) {
 	args := []interface{}{f.momentID, f.userID}
 
 	res, err := c.Tx.Exec(deleteFrom, args...)
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+
 	rowsAff, err = res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 
 	return
 }
@@ -550,13 +686,19 @@ func (fSet Finds) insert(c *dba.Trans) (rowCnt int64, err error) {
 	insert = insert + values
 	args, err := fSet.args()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	res, err := c.Tx.Exec(insert, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	rowCnt, err = res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 
 	return
 }
@@ -598,6 +740,7 @@ func (fSet Finds) delete() (rowCnt int64, err error) {
 	for _, f := range fSet {
 		rAff, err = f.delete(c)
 		if err != nil {
+			Error.Println(err)
 			rowCnt = 0
 			return
 		}
@@ -613,6 +756,7 @@ type SharesRow struct {
 	uID
 	all         bool
 	recipientID string
+	err         error
 }
 
 // String returns a string representation of a SharesRow instance.
@@ -643,10 +787,15 @@ func (s *SharesRow) delete(c *dba.Trans) (affCnt int64, err error) {
 
 	res, err := c.Tx.Exec(deleteFrom, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	affCnt, err = res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 
 	return
 }
@@ -659,6 +808,7 @@ type Shares []*SharesRow
 func (sSlice Shares) Share() (rowCnt int64, err error) {
 	rowCnt, err = sSlice.insert()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	return
@@ -677,9 +827,14 @@ func (sSlice Shares) insert() (rowCnt int64, err error) {
 
 	res, err := c.Db.Exec(insert, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	rowCnt, err = res.RowsAffected()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
 
 	return
 }
@@ -720,6 +875,7 @@ func (sSlice Shares) delete() (rowCnt int64, err error) {
 	for _, s := range sSlice {
 		affCnt, err = s.delete(c)
 		if err != nil {
+			Error.Println(err)
 			rowCnt = 0
 			return
 		}
@@ -732,6 +888,7 @@ func (sSlice Shares) delete() (rowCnt int64, err error) {
 type Location struct {
 	latitude  float32
 	longitude float32
+	err       error
 }
 
 // String returns the string representation of a Location instance.
@@ -759,6 +916,7 @@ type MomentsRow struct {
 	public     bool
 	hidden     bool
 	createDate *time.Time
+	err        error
 }
 
 // String returns a string representation of a MomentsRow instance.
@@ -790,16 +948,20 @@ func (m *MomentsRow) CreatePublic(media *Media) (err error) {
 
 	mID, err := m.insert(c)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	m.momentID = mID
 
 	for _, p := range *media {
-		if err = p.setMomentID(m.momentID); err != nil {
-			return err
+		p.setMomentID(m.momentID)
+		if p.err != nil {
+			Error.Println(err)
+			return
 		}
 	}
 	if _, err = media.insert(c); err != nil {
+		Error.Println(err)
 		return
 	}
 
@@ -812,9 +974,11 @@ var ErrorFindsPointerNil = errors.New("finds *Finds pointer is empty.")
 // and creates Finds in [Moment-Db].[moment].[Finds].
 func (m *MomentsRow) CreatePrivate(media *Media, finds *Finds) (err error) {
 	if media == nil {
+		Error.Println(ErrorMediaPointerNil)
 		return ErrorMediaPointerNil
 	}
 	if finds == nil {
+		Error.Println(ErrorFindsPointerNil)
 		return ErrorFindsPointerNil
 	}
 
@@ -823,26 +987,33 @@ func (m *MomentsRow) CreatePrivate(media *Media, finds *Finds) (err error) {
 
 	mID, err := m.insert(c)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	m.momentID = mID
 
 	for _, p := range *media {
-		if err = p.setMomentID(m.momentID); err != nil {
+		p.setMomentID(m.momentID)
+		if p.err != nil {
+			Error.Println(p.err)
 			return
 		}
 	}
 
 	for _, p := range *finds {
-		if err = p.setMomentID(m.momentID); err != nil {
+		p.setMomentID(m.momentID)
+		if p.err != nil {
+			Error.Println(p.err)
 			return
 		}
 	}
 
 	if _, err = media.insert(c); err != nil {
+		Error.Println(err)
 		return
 	}
 	if _, err = finds.insert(c); err != nil {
+		Error.Println(err)
 		return
 	}
 
@@ -864,15 +1035,18 @@ func (m *MomentsRow) insert(c *dba.Trans) (mID int64, err error) {
 
 	res, err := c.Tx.Exec(insert, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	if err = dba.ValidateRowsAffected(res, 1); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mID, err = res.LastInsertId()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	m.momentID = mID
@@ -902,10 +1076,13 @@ func (m *MomentsRow) delete(c *dba.Trans) (cnt int64, err error) {
 
 	res, err := c.Tx.Exec(deleteFrom, m.momentID)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	cnt, err = res.RowsAffected()
-
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -941,19 +1118,23 @@ func (rm ResultsMap) add(mRow *MomentsRow, rs ...interface{}) (err error) {
 		case *MediaRow:
 			r.media = make(MediaMap)
 			if err = r.media.add(v); err != nil {
+				Error.Println(err)
 				return
 			}
 		case *FindsRow:
 			r.finds = make(FindsMap)
 			if err = r.finds.add(v); err != nil {
+				Error.Println(err)
 				return
 			}
 		case *SharesRow:
 			r.shares = make(SharesMap)
 			if err = r.shares.add(v); err != nil {
+				Error.Println(err)
 				return
 			}
 		default:
+			Error.Println(err)
 			return ErrorTypeNotImplemented
 		}
 	}
@@ -971,22 +1152,26 @@ func (rs ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
 		case *MediaRow:
 			if !rs[mID].media.exists(v) {
 				if err = rs[mID].media.add(v); err != nil {
+					Error.Println(err)
 					return
 				}
 			}
 		case *FindsRow:
 			if !rs[mID].finds.exists(v) {
 				if err = rs[mID].finds.add(v); err != nil {
+					Error.Println(err)
 					return
 				}
 			}
 		case *SharesRow:
 			if !rs[mID].shares.exists(v) {
 				if err = rs[mID].shares.add(v); err != nil {
+					Error.Println(err)
 					return
 				}
 			}
 		default:
+			Error.Println(ErrorTypeNotImplemented)
 			return ErrorTypeNotImplemented
 		}
 	}
@@ -1056,6 +1241,7 @@ type FindsMap map[string]*FindsRow
 // add inserts a pointer to a FindsRow instance into the Findsmap receiver.
 func (fm FindsMap) add(f *FindsRow) (err error) {
 	if util.IsEmpty(f) {
+		Error.Println(ErrorVariableEmpty)
 		return ErrorVariableEmpty
 	}
 	fm[f.userID] = f
@@ -1094,6 +1280,7 @@ type MediaMap map[uint8]*MediaRow
 // add inserts a pointer to a MediaRow instance into the MediaMap receiver.
 func (mp MediaMap) add(md *MediaRow) (err error) {
 	if util.IsEmpty(md) {
+		Error.Println(ErrorVariableEmpty)
 		return ErrorVariableEmpty
 	}
 	mp[md.mType] = md
@@ -1154,6 +1341,7 @@ func momentsColumns() (c []*dba.Column, err error) {
 	c[3], err = dba.NewColumn(momentAlias, "CreateDate", noAlias)
 	lc, err := momentsLostColumns()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	c = append(c, lc...)
@@ -1267,18 +1455,21 @@ func momentsQuery() (q *dba.Query, err error) {
 	mc, err := momentsColumns()
 	medc, err := mediaColumns()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	columns := append(mc, medc...)
 	if err = q.SetColumns(columns...); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mf, err := momentsFrom(noJoin)
 	medf, err := mediaFrom(momentsJoin(mediaAlias))
 	if err != nil {
-
+		Error.Println(err)
+		return
 	}
 
 	froms := []*dba.Table{
@@ -1286,6 +1477,7 @@ func momentsQuery() (q *dba.Query, err error) {
 		medf,
 	}
 	if err = q.SetFroms(froms...); err != nil {
+		Error.Println(err)
 		return
 	}
 
@@ -1297,17 +1489,21 @@ func lostQuery() (q *dba.Query, err error) {
 
 	mlc, err := momentsLostColumns()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	if err = q.SetColumns(mlc...); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mf, err := momentsFrom(noJoin)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	if err = q.SetFroms(mf); err != nil {
+		Error.Println(err)
 		return
 	}
 	return
@@ -1315,32 +1511,39 @@ func lostQuery() (q *dba.Query, err error) {
 
 func LocationShared(l *Location, me string) (r ResultsMap, err error) {
 	if util.IsEmpty(l) || util.IsEmpty(me) {
+		Error.Println(ErrorVariableEmpty)
 		return r, ErrorVariableEmpty
 	}
 
 	query, err := momentsQuery()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	sf, err := sharesFrom(momentsJoin(sharesAlias))
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	if err = query.SetFroms(sf); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mwl, err := momentsWhereLocation(l)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	swr, err := sharesWhereRecipient(me)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	wheres := append(mwl, swr)
 	if err = query.SetWheres(wheres...); err != nil {
+		Error.Println(err)
 		return
 	}
 
@@ -1351,30 +1554,37 @@ func LocationShared(l *Location, me string) (r ResultsMap, err error) {
 
 func LocationPublic(l *Location) (r ResultsMap, err error) {
 	if util.IsEmpty(l) {
+		Error.Println(err)
 		return r, ErrorVariableEmpty
 	}
 
 	query, err := momentsQuery()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mwl, err := momentsWhereLocation(l)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	mwp, err := momentsWherePublic()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	wheres := append(mwl, mwp...)
 	if err = query.SetWheres(wheres...); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	r, err = process(query, momentsResults)
-
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -1385,26 +1595,32 @@ func LocationHidden(l *Location) (r ResultsMap, err error) {
 
 	query, err := lostQuery()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mwl, err := momentsWhereLocation(l)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	mwh, err := momentsWhereHidden()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
 	wheres := append(mwl, mwh...)
 	if err = query.SetWheres(wheres...); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	r, err = process(query, lostResults)
-
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
