@@ -1325,31 +1325,38 @@ const (
 	noAlias = ""
 )
 
-func momentsLostColumns() (c []*dba.Column, err error) {
+func momentsLostColumns(q *dba.Query) (c []*dba.Column) {
+	if err := q.Err(); err != nil {
+		return
+	}
+
 	c = make([]*dba.Column, 3)
-	c[0], err = dba.NewColumn(momentAlias, "ID", noAlias)
-	c[1], err = dba.NewColumn(momentAlias, "Latitude", noAlias)
-	c[2], err = dba.NewColumn(momentAlias, "Longitude", noAlias)
+	c[0] = q.NewColumn(momentAlias, "ID", noAlias)
+	c[1] = q.NewColumn(momentAlias, "Latitude", noAlias)
+	c[2] = q.NewColumn(momentAlias, "Longitude", noAlias)
 	return
 }
 
-func momentsColumns() (c []*dba.Column, err error) {
-	c = make([]*dba.Column, 4)
-	c[0], err = dba.NewColumn(momentAlias, "UserID", noAlias)
-	c[1], err = dba.NewColumn(momentAlias, "[Public]", noAlias)
-	c[2], err = dba.NewColumn(momentAlias, "[Hidden]", noAlias)
-	c[3], err = dba.NewColumn(momentAlias, "CreateDate", noAlias)
-	lc, err := momentsLostColumns()
-	if err != nil {
-		Error.Println(err)
+func momentsColumns(q *dba.Query) (c []*dba.Column) {
+	if err := q.Err(); err != nil {
 		return
 	}
+
+	c = make([]*dba.Column, 4)
+	c[0] = q.NewColumn(momentAlias, "UserID", noAlias)
+	c[1] = q.NewColumn(momentAlias, "[Public]", noAlias)
+	c[2] = q.NewColumn(momentAlias, "[Hidden]", noAlias)
+	c[3] = q.NewColumn(momentAlias, "CreateDate", noAlias)
+	lc := momentsLostColumns(q)
 	c = append(c, lc...)
 	return
 }
 
-func momentsFrom(join string) (t *dba.Table, err error) {
-	t, err = dba.NewTable(momentSchema, "Moments", momentAlias, join)
+func momentsFrom(q *dba.Query, join string) (t *dba.Table) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	t = q.NewTable(momentSchema, "Moments", momentAlias, join)
 	return
 }
 
@@ -1357,155 +1364,171 @@ func momentsJoin(alias string) string {
 	return momentAlias + ".ID = " + alias + ".MomentID"
 }
 
-func momentsWhereLocation(l *Location) (w []*dba.Where, err error) {
+func momentsWhereLocation(q *dba.Query, l *Location) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("", momentAlias+".Latitude BETWEEN ? AND ?", []interface{}{l.latitude - 1, l.latitude + 1})
-	w[1], err = dba.NewWhere("AND", momentAlias+".Longitude BETWEEN ? AND ?", []interface{}{l.longitude - 1, l.longitude + 1})
+	w[0] = q.NewWhere("", momentAlias+".Latitude BETWEEN ? AND ?", []interface{}{l.latitude - 1, l.latitude + 1})
+	w[1] = q.NewWhere("AND", momentAlias+".Longitude BETWEEN ? AND ?", []interface{}{l.longitude - 1, l.longitude + 1})
 	return
 }
 
-func momentsWherePublic() (w []*dba.Where, err error) {
+func momentsWherePublic(q *dba.Query) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("AND", momentAlias+".[Public] = 1", nil)
-	w[1], err = dba.NewWhere("AND", momentAlias+".[Hidden] = 0", nil)
+	w[0] = q.NewWhere("AND", momentAlias+".[Public] = 1", nil)
+	w[1] = q.NewWhere("AND", momentAlias+".[Hidden] = 0", nil)
 	return
 }
 
-func momentsWhereHidden() (w []*dba.Where, err error) {
+func momentsWhereHidden(q *dba.Query) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("AND", momentAlias+".[Public] = 1", nil)
-	w[1], err = dba.NewWhere("AND", momentAlias+".[Hidden] = 1", nil)
+	w[0] = q.NewWhere("AND", momentAlias+".[Public] = 1", nil)
+	w[1] = q.NewWhere("AND", momentAlias+".[Hidden] = 1", nil)
 	return
 }
 
-func momentsWherePrivate() (w *dba.Where, err error) {
-	w, err = dba.NewWhere("AND", momentAlias+".[Public] = 0", nil)
+func momentsWherePrivate(q *dba.Query) (w *dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	w = q.NewWhere("AND", momentAlias+".[Public] = 0", nil)
 	return
 }
 
-func momentsWhereUserID(u string) (w *dba.Where, err error) {
-	w, err = dba.NewWhere("", momentAlias+".UserID = ?", []interface{}{u})
+func momentsWhereUserID(q *dba.Query, u string) (w *dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	w = q.NewWhere("", momentAlias+".UserID = ?", []interface{}{u})
 	return
 }
 
-func mediaColumns() (c []*dba.Column, err error) {
+func mediaColumns(q *dba.Query) (c []*dba.Column) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	c = make([]*dba.Column, 3)
-	c[0], err = dba.NewColumn(mediaAlias, "Message", noAlias)
-	c[1], err = dba.NewColumn(mediaAlias, "Type", noAlias)
-	c[2], err = dba.NewColumn(mediaAlias, "Dir", noAlias)
+	c[0] = q.NewColumn(mediaAlias, "Message", noAlias)
+	c[1] = q.NewColumn(mediaAlias, "Type", noAlias)
+	c[2] = q.NewColumn(mediaAlias, "Dir", noAlias)
 	return
 }
 
-func mediaFrom(join string) (t *dba.Table, err error) {
-	t, err = dba.NewTable(momentSchema, "Media", mediaAlias, join)
+func mediaFrom(q *dba.Query, join string) (t *dba.Table) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	t = q.NewTable(momentSchema, "Media", mediaAlias, join)
 	return
 }
 
-func findsColumns() (c []*dba.Column, err error) {
+func findsColumns(q *dba.Query) (c []*dba.Column) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	c = make([]*dba.Column, 2)
-	c[0], err = dba.NewColumn(findsAlias, "UserID", noAlias)
-	c[1], err = findsFindDateColumn()
+	c[0] = q.NewColumn(findsAlias, "UserID", noAlias)
+	c[1] = findsFindDateColumn(q)
 	return
 }
 
-func findsFindDateColumn() (c *dba.Column, err error) {
-	c, err = dba.NewColumn(findsAlias, "FindDate", noAlias)
+func findsFindDateColumn(q *dba.Query) (c *dba.Column) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	c = q.NewColumn(findsAlias, "FindDate", noAlias)
 	return
 }
 
-func findsFrom(join string) (t *dba.Table, err error) {
-	t, err = dba.NewTable(momentSchema, "Finds", findsAlias, join)
+func findsFrom(q *dba.Query, join string) (t *dba.Table) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	t = q.NewTable(momentSchema, "Finds", findsAlias, join)
 	return
 }
 
-func findsWhereLostUserId(u string) (w []*dba.Where, err error) {
+func findsWhereLostUserId(q *dba.Query, u string) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("AND", findsAlias+".Found = 0", nil)
-	w[1], err = dba.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
+	w[0] = q.NewWhere("AND", findsAlias+".Found = 0", nil)
+	w[1] = q.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
 	return
 }
 
-func findsWhereUserIDFound(u string) (w []*dba.Where, err error) {
+func findsWhereUserIDFound(q *dba.Query, u string) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("", findsAlias+".Found = 1", nil)
-	w[1], err = dba.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
+	w[0] = q.NewWhere("", findsAlias+".Found = 1", nil)
+	w[1] = q.NewWhere("AND", findsAlias+".UserID = ?", []interface{}{u})
 	return
 }
 
-func sharesFrom(join string) (t *dba.Table, err error) {
-	t, err = dba.NewTable(momentSchema, "Shares", sharesAlias, join)
+func sharesFrom(q *dba.Query, join string) (t *dba.Table) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	t = q.NewTable(momentSchema, "Shares", sharesAlias, join)
 	return
 }
 
-func sharesWhereRecipient(me string) (w *dba.Where, err error) {
-	w, err = dba.NewWhere("AND", "("+sharesAlias+".RecipientID = ? OR s.[All] = 1)", []interface{}{me})
+func sharesWhereRecipient(q *dba.Query, me string) (w *dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
+	w = q.NewWhere("AND", "("+sharesAlias+".RecipientID = ? OR s.[All] = 1)", []interface{}{me})
 	return
 }
 
-func sharesWhereUserIDRecipient(you, me string) (w []*dba.Where, err error) {
+func sharesWhereUserIDRecipient(q *dba.Query, you, me string) (w []*dba.Where) {
+	if err := q.Err(); err != nil {
+		return
+	}
 	w = make([]*dba.Where, 2)
-	w[0], err = dba.NewWhere("", "s.UserID = ?", []interface{}{you})
-	w[1], err = dba.NewWhere("AND", "(s.RecipientID = ? OR s.[All] = 1)", []interface{}{me})
+	w[0] = q.NewWhere("", "s.UserID = ?", []interface{}{you})
+	w[1] = q.NewWhere("AND", "(s.RecipientID = ? OR s.[All] = 1)", []interface{}{me})
 	return
 }
 
-func momentsQuery() (q *dba.Query, err error) {
+func momentsQuery() (q *dba.Query) {
 	q = dba.NewQuery("Standard Moments Select")
 
-	mc, err := momentsColumns()
-	medc, err := mediaColumns()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
+	mc := momentsColumns(q)
+	medc := mediaColumns(q)
 	columns := append(mc, medc...)
-	if err = q.SetColumns(columns...); err != nil {
-		Error.Println(err)
-		return
-	}
 
-	mf, err := momentsFrom(noJoin)
-	medf, err := mediaFrom(momentsJoin(mediaAlias))
-	if err != nil {
-		Error.Println(err)
-		return
-	}
+	q.SetColumns(columns...)
 
+	mf := momentsFrom(q, noJoin)
+	medf := mediaFrom(q, momentsJoin(mediaAlias))
 	froms := []*dba.Table{
 		mf,
 		medf,
 	}
-	if err = q.SetFroms(froms...); err != nil {
-		Error.Println(err)
-		return
-	}
 
+	q.SetFroms(froms...)
 	return
 }
 
-func lostQuery() (q *dba.Query, err error) {
+func lostQuery() (q *dba.Query) {
 	q = dba.NewQuery("Lost Moments Query")
 
-	mlc, err := momentsLostColumns()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	if err = q.SetColumns(mlc...); err != nil {
-		Error.Println(err)
-		return
-	}
+	mlc := momentsLostColumns(q)
+	q.SetColumns(mlc...)
 
-	mf, err := momentsFrom(noJoin)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	if err = q.SetFroms(mf); err != nil {
-		Error.Println(err)
-		return
-	}
+	mf := momentsFrom(q, noJoin)
+	q.SetFroms(mf)
 	return
 }
 
@@ -1515,40 +1538,25 @@ func LocationShared(l *Location, me string) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentsQuery()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
+	query := momentsQuery()
 
-	sf, err := sharesFrom(momentsJoin(sharesAlias))
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	if err = query.SetFroms(sf); err != nil {
-		Error.Println(err)
-		return
-	}
+	sf := sharesFrom(query, momentsJoin(sharesAlias))
+	query.SetFroms(sf)
 
-	mwl, err := momentsWhereLocation(l)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	swr, err := sharesWhereRecipient(me)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
+	mwl := momentsWhereLocation(query, l)
+	swr := sharesWhereRecipient(query, me)
 	wheres := append(mwl, swr)
-	if err = query.SetWheres(wheres...); err != nil {
+
+	query.SetWheres(wheres...)
+	if err = query.Err(); err != nil {
 		Error.Println(err)
 		return
 	}
 
 	r, err = process(query, momentsResults)
-
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -1558,25 +1566,13 @@ func LocationPublic(l *Location) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentsQuery()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
+	query := momentsQuery()
 
-	mwl, err := momentsWhereLocation(l)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	mwp, err := momentsWherePublic()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
+	mwl := momentsWhereLocation(query, l)
+	mwp := momentsWherePublic(query)
 	wheres := append(mwl, mwp...)
-	if err = query.SetWheres(wheres...); err != nil {
+	query.SetWheres(wheres...)
+	if err = query.Err(); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -1593,30 +1589,16 @@ func LocationHidden(l *Location) (r ResultsMap, err error) {
 		return r, ErrorLocationIsNil
 	}
 
-	query, err := lostQuery()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
+	query := lostQuery()
 
-	mwl, err := momentsWhereLocation(l)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	mwh, err := momentsWhereHidden()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
+	mwl := momentsWhereLocation(query, l)
+	mwh := momentsWhereHidden(query)
 	wheres := append(mwl, mwh...)
-	if err = query.SetWheres(wheres...); err != nil {
+	query.SetWheres(wheres...)
+	if err = query.Err(); err != nil {
 		Error.Println(err)
 		return
 	}
-
 	r, err = process(query, lostResults)
 	if err != nil {
 		Error.Println(err)
@@ -1632,39 +1614,25 @@ func LocationLost(l *Location, me string) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := lostQuery()
-	if err != nil {
-		return
-	}
+	query := lostQuery()
+	ff := findsFrom(query, momentsJoin(findsAlias))
+	query.SetFroms(ff)
 
-	ff, err := findsFrom(momentsJoin(findsAlias))
-	if err != nil {
-		return
-	}
-	if err = query.SetFroms(ff); err != nil {
-		return
-	}
-
-	mwl, err := momentsWhereLocation(l)
-	if err != nil {
-		return
-	}
-	mwp, err := momentsWherePrivate()
-	if err != nil {
-		return
-	}
-	fwlu, err := findsWhereLostUserId(me)
-	if err != nil {
-		return
-	}
+	mwl := momentsWhereLocation(query, l)
+	mwp := momentsWherePrivate(query)
+	fwlu := findsWhereLostUserId(query, me)
 
 	wheres := append(mwl, mwp)
 	wheres = append(wheres, fwlu...)
-	if err = query.SetWheres(wheres...); err != nil {
+	query.SetWheres(wheres...)
+	if err = query.Err(); err != nil {
+		Error.Println(err)
 		return
 	}
-
 	r, err = process(query, lostResults)
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -1673,29 +1641,21 @@ func UserShared(me string, u string) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentsQuery()
-	if err != nil {
-		return
-	}
+	query := momentsQuery()
 
-	sf, err := sharesFrom(momentsJoin(sharesAlias))
-	if err != nil {
-		return
-	}
+	sf := sharesFrom(query, momentsJoin(sharesAlias))
+	query.SetFroms(sf)
 
-	if err = query.SetFroms(sf); err != nil {
+	swur := sharesWhereUserIDRecipient(query, u, me)
+	query.SetWheres(swur...)
+	if err = query.Err(); err != nil {
+		Error.Println(err)
 		return
 	}
-
-	swur, err := sharesWhereUserIDRecipient(u, me)
-	if err != nil {
-		return
-	}
-	if err = query.SetWheres(swur...); err != nil {
-		return
-	}
-
 	r, err = process(query, momentsResults)
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -1704,36 +1664,25 @@ func UserLeft(me string) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentsQuery()
-	if err != nil {
-		return
-	}
+	query := momentsQuery()
 
-	fc, err := findsColumns()
-	if err != nil {
-		return
-	}
-	if err = query.SetColumns(fc...); err != nil {
-		return
-	}
+	fc := findsColumns(query)
+	query.SetColumns(fc...)
 
-	ff, err := findsFrom(momentsJoin(findsAlias))
-	if err != nil {
-		return
-	}
-	if err = query.SetFroms(ff); err != nil {
-		return
-	}
+	ff := findsFrom(query, momentsJoin(findsAlias))
+	query.SetFroms(ff)
 
-	mwu, err := momentsWhereUserID(me)
-	if err != nil {
-		return
-	}
-	if err = query.SetWheres(mwu); err != nil {
+	mwu := momentsWhereUserID(query, me)
+	query.SetWheres(mwu)
+	if err = query.Err(); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	r, err = process(query, leftResults)
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
@@ -1742,36 +1691,25 @@ func UserFound(me string) (r ResultsMap, err error) {
 		return r, ErrorVariableEmpty
 	}
 
-	query, err := momentsQuery()
-	if err != nil {
-		return
-	}
+	query := momentsQuery()
 
-	fdc, err := findsFindDateColumn()
-	if err != nil {
-		return
-	}
-	if err = query.SetColumns(fdc); err != nil {
-		return
-	}
+	fdc := findsFindDateColumn(query)
+	query.SetColumns(fdc)
 
-	ff, err := findsFrom(momentsJoin(findsAlias))
-	if err != nil {
-		return
-	}
-	if err = query.SetFroms(ff); err != nil {
-		return
-	}
+	ff := findsFrom(query, momentsJoin(findsAlias))
+	query.SetFroms(ff)
 
-	fwu, err := findsWhereUserIDFound(me)
-	if err != nil {
-		return
-	}
-	if err = query.SetWheres(fwu...); err != nil {
+	fwu := findsWhereUserIDFound(query, me)
+	query.SetWheres(fwu...)
+	if err = query.Err(); err != nil {
+		Error.Println(err)
 		return
 	}
 
 	r, err = process(query, foundResults)
+	if err != nil {
+		Error.Println(err)
+	}
 	return
 }
 
