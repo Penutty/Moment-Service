@@ -48,13 +48,14 @@ var (
 
 func init() {
 	Logger := func(logType string) *log.Logger {
-		file := "/home/tjp/go/log/" + logType + ".txt"
+		file := "/home/tjp/go/log/moment.txt"
 		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			panic(err)
 		}
 
-		return log.New(f, strings.ToUpper(logType)+": ", log.Lshortfile|log.LUTC)
+		l := log.New(f, strings.ToUpper(logType)+": ", log.Ldate|log.Ltime|log.Lmicroseconds|log.LUTC|log.Lshortfile)
+		return l
 	}
 
 	Info = Logger("info")
@@ -1724,6 +1725,7 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (ResultsMap, error)) (
 
 	queryString, err := query.Build()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 
@@ -1732,20 +1734,23 @@ func process(query *dba.Query, rowHandler func(*sql.Rows) (ResultsMap, error)) (
 
 	args, err := query.Args()
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	rows, err := c.Db.Query(queryString, args...)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	defer rows.Close()
 
 	r, err = rowHandler(rows)
 	if err != nil {
+		Error.Println(err)
 		return
 	}
 	if err = rows.Err(); err != nil {
-		return
+		Error.Println(err)
 	}
 
 	return
@@ -1772,20 +1777,24 @@ func momentsResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
+			Error.Println(err)
 			return
 		}
 
 		m.createDate, err = dba.ParseDateTime2(createDate)
 		if err != nil {
+			Error.Println(err)
 			return
 		}
 
 		if rm.exists(m) {
 			if err = rm.append(m, md); err != nil {
+				Error.Println(err)
 				return
 			}
 		} else {
 			if err = rm.add(m, md); err != nil {
+				Error.Println(err)
 				return
 			}
 		}
@@ -1816,23 +1825,28 @@ func leftResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
+			Error.Println(err)
 			return
 		}
 		m.createDate, err = dba.ParseDateTime2(createDate)
 		if err != nil {
+			Error.Println(err)
 			return
 		}
 		f.findDate, err = dba.ParseDateTime2(findDate)
 		if err != nil {
+			Error.Println(err)
 			return
 		}
 
 		if rm.exists(m) {
 			if err = rm.append(m, md, f); err != nil {
+				Error.Println(err)
 				return
 			}
 		} else {
 			if err = rm.add(m, md, f); err != nil {
+				Error.Println(err)
 				return
 			}
 		}
@@ -1862,23 +1876,28 @@ func foundResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
+			Error.Println(err)
 			return
 		}
 		m.createDate, err = dba.ParseDateTime2(createDate)
 		if err != nil {
+			Error.Println(err)
 			return
 		}
 		f.findDate, err = dba.ParseDateTime2(findDate)
 		if err != nil {
+			Error.Println(err)
 			return
 		}
 
 		if rm.exists(m) {
 			if err = rm.append(m, md, f); err != nil {
+				Error.Println(err)
 				return
 			}
 		} else {
 			if err = rm.add(m, md, f); err != nil {
+				Error.Println(err)
 				return
 			}
 		}
@@ -1898,6 +1917,7 @@ func lostResults(rows *sql.Rows) (rm ResultsMap, err error) {
 	rm = make(ResultsMap, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
+			Error.Println(err)
 			return
 		}
 		newR := &ResultMap{
