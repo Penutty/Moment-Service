@@ -17,8 +17,16 @@ func main() {
 
 	e.Pre(validateJwt)
 
-	e.GET("/moment/:moment/user/:user/", userMoment)
-	e.GET("/moment/:moment/location/:location", locationMoment)
+	e.GET("/moment/shared/user/:user/", userShared)
+	e.GET("/moment/found/user/:user/", userFound)
+	e.GET("/moment/left/user/:user/", userLeft)
+
+	e.GET("/moment/shared/location/:location", locationShared)
+	e.GET("/moment/public/location/:location", locationPublic)
+
+	e.GET("/moment/hidden/location/:location", locationHidden)
+	e.GET("/moment/lost/location/:location", locationLost)
+
 	e.POST("/moment/:moment/:action", setMoment)
 
 	e.Logger.Fatal(e.Start(":8081"))
