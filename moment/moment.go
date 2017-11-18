@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
-	"github.com/penutty/dba"
 	"github.com/penutty/util"
 	"log"
 	"os"
@@ -45,6 +44,9 @@ var (
 	Info  *log.Logger
 	Warn  *log.Logger
 	Error *log.Logger
+
+	connStr = os.Getenv("MomentDBConnStr")
+	driver  = "mssql"
 )
 
 func init() {
@@ -69,8 +71,245 @@ var (
 	ErrorVariableEmpty       = errors.New("Variable is empty.")
 )
 
+// MomentDB creates *db.Sql instance.
+func MomentDB() *sql.DB {
+	db, err := sql.Open(driver, connStr)
+	if err != nil {
+		Error.Fatal(err)
+	}
+	return db
+}
+
+type MomentClient struct {
+	proc MomentDber
+	err  error
+}
+
+func NewMomentClient(m MomentDber) *MomentClient {
+	return &MomentClient{
+		proc: m,
+	}
+}
+
+func (mc *MomentClient) Err() error {
+	return mc.err
+}
+
+// FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
+func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
+	if err := f.isFound(); err != nil {
+		Error.Println(err)
+		return
+	}
+
+	fs := []*FindsRow{
+		f,
+	}
+	cnt, err = mc.proc.insert(fs)
+	if err != nil {
+		Error.Println(err)
+	}
+	return
+}
+
+// FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
+func (mc *MomentClient) FindPrivate(f *FindsRow) (err error) {
+	if err := f.isFound(); err != nil {
+		Error.Println(err)
+		return
+	}
+
+	if err = mc.proc.update(f); err != nil {
+		Error.Println(err)
+	}
+	return
+}
+
+// Share is an exported package that allows the insertion of a
+// Shares instance into the [Moment-Db].[moment].[Shares] table.
+func (mc *MomentClient) Share(ss []*SharesRow) (cnt int64, err error) {
+	if len(ss) == 0 {
+		Error.Println(ErrorParameterEmpty)
+		err = ErrorParameterEmpty
+		return
+	}
+
+	cnt, err = mc.m.insert(ss)
+	if err != nil {
+		Error.Println(err)
+	}
+	return
+}
+
+var ErrorMediaPointerNil = errors.New("md *Media is nil.")
+
+// CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
+func (mc *MomentClient) CreatePublic(m *MomentsRow, ms []*MediaRow) (err error) {
+	if len(ms) == 0 || m == nil {
+		Error.Println(ErrorParameterEmpty)
+		return ErrorParameterEmpty
+	}
+
+	var mID int64
+	if mID, err = mc.proc.insert(m); err != nil {
+		Error.Println(err)
+		return
+	}
+	m.momentID = mID
+
+	for _, mr := range *ms {
+		mr.setMomentID(m.momentID)
+		if err = mr.err; err != nil {
+			Error.Println(err)
+			return
+		}
+	}
+	var rowCnt int64
+	if rowCnt, err = mc.proc.insert(ms); err != nil {
+		Error.Println(err)
+		return
+	}
+
+	return
+}
+
+var ErrorFindsPointerNil = errors.New("finds *Finds pointer is empty.")
+
+// CreatePrivate creates a MomentsRow in [Moment-Db].[moment].[Moments] where Public=true
+// and creates Finds in [Moment-Db].[moment].[Finds].
+func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*FindsRow) (err error) {
+	if m == nil || len(ms) == 0 || len(fs) == 0 {
+		Error.Println(ErrorParameterEmpty)
+		return ErrorParameterEmpty
+	}
+
+	mID, err := mc.proc.insert(m)
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	m.momentID = mID
+
+	for _, md := range ms {
+		md.setMomentID(m.momentID)
+		if md.err != nil {
+			Error.Println(md.err)
+			return md.err
+		}
+	}
+
+	for _, f := range *fs {
+		f.setMomentID(m.momentID)
+		if f.err != nil {
+			Error.Println(f.err)
+			return f.err
+		}
+	}
+
+	if _, err = mc.proc.insert(ms); err != nil {
+		Error.Println(err)
+		return
+	}
+	if _, err = mc.proc.insert(fs); err != nil {
+		Error.Println(err)
+		return
+	}
+
+	return
+}
+
+type Momenter interface {
+	insert(sq.BaseRunner, interface{}) (int64, error)
+}
+
+type DbProcess struct {
+	db sq.BaseRunner
+}
+
+func NewDbProcess(db sq.BaseRunner) *DbProcess {
+	return &DbProcess{
+		db: db,
+	}
+}
+
+func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
+	var insert sq.InsertBuilder
+	switch v := i.(type) {
+	case []*FindsRow:
+		insert = sq.
+			Insert(momentSchema+"."+finds).
+			Columns(momentID, userID, found, findDate)
+		for _, f := range v {
+			insert = insert.Values(f.momentID, f.userID, f.found, f.findDate)
+		}
+	case []*SharesRow:
+		insert = sq.
+			Insert(momentSchema+"."+shares).
+			Columns(momentID, userID, all, recipientID)
+		for _, s := range v {
+			insert = insert.Values(s.momentID, s.userID, s.all, s.recipientID)
+		}
+	case []*MediaRow:
+		insert = sq.
+			Insert(momentSchema+"."+media).
+			Columns(momentID, message, mtype, dir)
+		for _, md := range v {
+			insert = insert.Values(md.momentID, md.message, md.mType, md.dir)
+		}
+	case *MomentsRow:
+		insert = sq.
+			Insert(momentSchema+"."+moments).
+			Columns(iD, userID, lat, long, public, hidden, createdate).
+			Values(v.momentID, v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
+	default:
+		p.err = ErrorTypeNotImplemented
+		return
+	}
+
+	res, err := insert.RunWith(p.db).Exec()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+
+	var resVal int64
+	switch _ := i.(type) {
+	case *MomentsRow:
+		resVal, err = res.LastInsertId()
+	default:
+		resVal, err = res.RowsAffected()
+	}
+	if err != nil {
+		Error.Println(err)
+	}
+
+	return
+}
+
+func (p *DbProcess) update(i interface{}) (err error) {
+	var query sq.UpdateBuilder
+	switch v := i.(type) {
+	case *FindsRow:
+		sM = map[string]interface{}{found: v.found, findDate: v.findDate}
+		wM = map[string]interface{}{momentID: v.momentID, userID: v.userID}
+		query = query.Table(momentSchema + "." + finds).Set(sM).Where(wM)
+	default:
+		return ErrorTypeNotImplemented
+	}
+
+	_, err = query.RunWith(p.db).Exec()
+	if err != nil {
+		Error.Println(err)
+	}
+	return
+}
+
 // NewMoment is a constructor for the MomentsRow struct.
-func (mc *MomentClient) NewMoment(l *Location, uID string, p bool, h bool, c *time.Time) (m *MomentsRow) {
+func (mc *MomentClient) NewMomentsRow(l *Location, uID string, p bool, h bool, c *time.Time) (m *MomentsRow) {
+	if mc.err != nil {
+		return
+	}
+
 	m = new(MomentsRow)
 
 	m.setLocation(l)
@@ -91,6 +330,34 @@ func (mc *MomentClient) NewMoment(l *Location, uID string, p bool, h bool, c *ti
 	}
 
 	return
+}
+
+// MomentsRow is a row in the [Moment-Db].[moment].[Moments] table.
+// It is composed of various fields and a Location instance.
+type MomentsRow struct {
+	Location
+	mID
+	uID
+	public     bool
+	hidden     bool
+	createDate *time.Time
+	err        error
+}
+
+// String returns a string representation of a MomentsRow instance.
+func (m MomentsRow) String() string {
+	return fmt.Sprintf("id: %v\n"+
+		"userID: %v\n"+
+		"Location: %v\n"+
+		"public: %v\n"+
+		"hidden: %v\n"+
+		"createDate: %v\n",
+		m.momentID,
+		m.userID,
+		m.Location,
+		m.public,
+		m.hidden,
+		m.createDate)
 }
 
 var ErrorLocationIsNil = errors.New("l *Location is nil")
@@ -134,7 +401,11 @@ var ErrorMediaExistsDirDNE = errors.New("m.mType is not DNE, therefore m.dir mus
 var ErrorMessageLong = errors.New("m must be >= " + strconv.Itoa(minMessage) + " AND <= " + strconv.Itoa(maxMessage) + ".")
 
 // NewMedia is a constructor for the MediaRow struct.
-func (mc *MomentClient) NewMedia(mID int64, m string, mType uint8, d string) (mr *MediaRow) {
+func (mc *MomentClient) NewMediaRow(mID int64, m string, mType uint8, d string) (mr *MediaRow) {
+	if mc.err != nil {
+		return
+	}
+
 	mr = new(MediaRow)
 
 	mr.setMomentID(mID)
@@ -160,6 +431,20 @@ func (mc *MomentClient) NewMedia(mID int64, m string, mType uint8, d string) (mr
 	}
 
 	return
+}
+
+// MediaRow is a row in the [Moment-Db].[moment].[Media] table.
+type MediaRow struct {
+	mID
+	message string
+	mType   uint8
+	dir     string
+	err     error
+}
+
+// String returns the string representation of a MediaRow instance.
+func (m MediaRow) String() string {
+	return fmt.Sprintf("momentID: %v\nmType: %v\nmessage: %v\ndir: %v\n", m.momentID, m.mType, m.message, m.dir)
 }
 
 // setMediaType ensures that t is a value between minMediaType and maxMediaType.
@@ -201,7 +486,11 @@ var ErrorFoundEmptyFindDate = errors.New("fr.found=true, therefore fr.findDate m
 var ErrorNotFoundFindDateExists = errors.New("fr.found=false, therefore fr.findDate must be empty.")
 
 // NewFind is a constructor for the FindsRow struct
-func (mc *MomentClient) NewFind(mID int64, uID string, f bool, fd *time.Time) (fr *FindsRow) {
+func (mc *MomentClient) NewFindsRow(mID int64, uID string, f bool, fd *time.Time) (fr *FindsRow) {
+	if mc.err != nil {
+		return
+	}
+
 	fr = new(FindsRow)
 
 	fr.setMomentID(mID)
@@ -228,6 +517,27 @@ func (mc *MomentClient) NewFind(mID int64, uID string, f bool, fd *time.Time) (f
 	}
 
 	return
+}
+
+// FindsRow is a row in the [Moment-Db].[moment].[Finds] table.
+type FindsRow struct {
+	mID
+	uID
+	found    bool
+	findDate *time.Time
+	err      error
+}
+
+// String returns the string representation of FindsRow
+func (f FindsRow) String() string {
+	return fmt.Sprintf("momentID: %v\n"+
+		"userID:   %v\n"+
+		"found: 	  %v\n"+
+		"findDate: %v\n",
+		f.momentID,
+		f.userID,
+		f.found,
+		f.findDate)
 }
 
 func (f *FindsRow) setFindDate(fd *time.Time) {
@@ -262,7 +572,11 @@ var ErrorAllRecipientExists = errors.New("s.all=true, therefore s.recipientID mu
 var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID must be set")
 
 // NewShare is a constructor for the SharesRow struct.
-func (mc *MomentClient) NewShare(mID int64, uID string, all bool, r string) (s *SharesRow) {
+func (mc *MomentClient) NewSharesRow(mID int64, uID string, all bool, r string) (s *SharesRow) {
+	if mc.err != nil {
+		return
+	}
+
 	s = new(SharesRow)
 
 	s.setMomentID(mID)
@@ -288,6 +602,28 @@ func (mc *MomentClient) NewShare(mID int64, uID string, all bool, r string) (s *
 	}
 
 	return
+}
+
+// SharesRow is a row in the [Moment-Db].[moment].[Shares] table.
+type SharesRow struct {
+	mID
+	uID
+	all         bool
+	recipientID string
+	err         error
+}
+
+// String returns a string representation of a SharesRow instance.
+func (s SharesRow) String() string {
+
+	return fmt.Sprintf("momentID: %v\n"+
+		"userID: %v\n"+
+		"all: %v\n"+
+		"recipientID: %v\n",
+		s.momentID,
+		s.userID,
+		s.all,
+		s.recipientID)
 }
 
 func (s *SharesRow) setRecipientID(id string) {
@@ -322,6 +658,10 @@ var ErrorLongitude = errors.New("Longitude must be between -90 and 90.")
 
 // NewLocation is a constructor for the Location struct.
 func (mc *MomentClient) NewLocation(lat float32, long float32) (l *Location) {
+	if mc.err != nil {
+		return
+	}
+
 	l = new(Location)
 
 	l.setLatitude(lat)
@@ -335,29 +675,41 @@ func (mc *MomentClient) NewLocation(lat float32, long float32) (l *Location) {
 	return
 }
 
+// Location is a geographical point identified by longitude, latitude.
+type Location struct {
+	latitude  float32
+	longitude float32
+	err       error
+}
+
+// String returns the string representation of a Location instance.
+func (l Location) String() string {
+	return fmt.Sprintf("latitude: %v\nlongitude: %v\n", l.latitude, l.longitude)
+}
+
 // setLatitude ensures that the values of l is between minLat and maxLat.
-func (lo *Location) setLatitude(l float32) {
-	if lo.err != nil {
+func (l *Location) setLatitude(lat float32) {
+	if l.err != nil {
 		return
 	}
-	if l < minLat || l > maxLat {
-		lo.err = ErrorLatitude
+	if lat < minLat || lat > maxLat {
+		l.err = ErrorLatitude
 		return
 	}
-	lo.latitude = l
+	l.latitude = lat
 	return
 }
 
 // setLongitude ensures that the values of l is between minLong and maxLong.
-func (lo *Location) setLongitude(l float32) {
-	if lo.err != nil {
+func (l *Location) setLongitude(long float32) {
+	if l.err != nil {
 		return
 	}
-	if l < minLong || l > maxLong {
-		lo.err = ErrorLongitude
+	if long < minLong || long > maxLong {
+		l.err = ErrorLongitude
 		return
 	}
-	lo.longitude = l
+	l.longitude = long
 	return
 }
 
@@ -383,13 +735,6 @@ func (u *uID) setUserID(id string) (err error) {
 	}
 	u.userID = id
 	return
-}
-
-// check is a helper function that is used to ensure another function did not return an error.
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
 
 var ErrorTimePtrNil = errors.New("t *time.Time is set to nil")
@@ -454,592 +799,7 @@ func checkUserIDShort(id string) (err error) {
 	return
 }
 
-// MediaRow is a row in the [Moment-Db].[moment].[Media] table.
-type MediaRow struct {
-	mID
-	message string
-	mType   uint8
-	dir     string
-	err     error
-}
-
-// String returns the string representation of a MediaRow instance.
-func (m MediaRow) String() string {
-	return fmt.Sprintf("momentID: %v\nmType: %v\nmessage: %v\ndir: %v\n", m.momentID, m.mType, m.message, m.dir)
-}
-
-// delete is MediaRow method that deletes a row from the [Moment-Db].[moment].[Media] table.
-func (m *MediaRow) delete(db sq.BaseRunner) (rowCnt int64) {
-
-	predicates := map[string]interface{}{
-		"[MomentID]": m.momentID,
-		"[Type]":     m.mType,
-	}
-
-	res, err := sq.Delete("[moment].[Media]").Where(predicates).RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-		return
-	}
-
-	cnt, err := res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-		return
-	}
-	rowCnt = int64(cnt)
-
-	return
-}
-
-// Media is a set of pointers to MediaRow instances.
-type Media []*MediaRow
-
-// insert inserts a set of MediaRow instances into the [Moment-Db].[moment].[Media] table.
-func (mSet Media) insert(db sq.BaseRunner) (rowCnt int64, err error) {
-
-	insert := sq.Insert("[moment].[Media]").Columns("[MomentID], [Message], [Type], [Dir]")
-	for _, m := range mSet {
-		insert = insert.Values(m.mID, m.message, m.mType, m.dir)
-	}
-
-	res, err := insert.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	cnt, err := res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	rowCnt = int64(cnt)
-
-	return
-}
-
-// delete deletes a set of MediaRows from the [Moment-Db].[moment].[Media] table.
-func (mSet Media) delete(db sq.BaseRunner) (rowCnt int64, err error) {
-
-	var affCnt int64
-	for _, m := range mSet {
-		affCnt, err = m.delete(db)
-		if err != nil {
-			Error.Println(err)
-			rowCnt = 0
-			return
-		}
-		rowCnt += affCnt
-	}
-
-	return
-}
-
-// FindsRow is a row in the [Moment-Db].[moment].[Finds] table.
-type FindsRow struct {
-	mID
-	uID
-	found    bool
-	findDate *time.Time
-	err      error
-}
-
-// String returns the string representation of FindsRow
-func (f FindsRow) String() string {
-	return fmt.Sprintf("momentID: %v\n"+
-		"userID:   %v\n"+
-		"found: 	  %v\n"+
-		"findDate: %v\n",
-		f.momentID,
-		f.userID,
-		f.found,
-		f.findDate)
-}
-
 var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true and f.findDate=*time.Time{}")
-
-// FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
-func (f *FindsRow) FindPublic(db sq.BaseRunner) (cnt int64, err error) {
-	if f.userID == "" || f.momentID == 0 {
-		Error.Println(ErrorVariableEmpty)
-		return 0, ErrorVariableEmpty
-	}
-
-	dt := time.Now().UTC()
-	insert := sq.Insert("[moment].[Finds]").
-		Columns("[MomentID]", "[UserID]", "[Found]", "[FindDate]").
-		Values(f.momentID, f.userID, true, &dt)
-
-	res, err := insert.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	cnt, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-	}
-	return
-}
-
-// FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
-func (f *FindsRow) FindPrivate(db sq.BaseRunner) (err error) {
-	if f.userID == "" || f.momentID == 0 {
-		Error.Println(ErrorVariableEmpty)
-		return ErrorVariableEmpty
-	}
-
-	setM := map[string]interface{}{
-		"[Found]":    1,
-		"[FindDate]": time.Now().UTC(),
-	}
-	whereM := map[string]interface{}{
-		"[UserID]":   f.userID,
-		"[MomentID]": f.momentID,
-	}
-
-	update := sq.Update("[moment].[Finds]").
-		SetMap(setM).
-		Where(whereM)
-
-	res, err := update.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	err = dba.ValidateRowsAffected(res, 1)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
-}
-
-// delete deletes a FindsRow from the [Moment-Db].[moment].[Finds] table.
-func (f *FindsRow) delete(db sq.BaseRunner, c *dba.Trans) (rowsAff int64, err error) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
-
-	whereM := map[string]interface{}{
-		"[MomentID]": f.momentID,
-		"[UserID]":   f.userID,
-	}
-	delete := sq.Delete("[moment].[Finds]").Where(whereM)
-
-	res, err := delete.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	rowsAff, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	return
-}
-
-// Finds is a slice of pointers to FindsRow instances.
-type Finds []*FindsRow
-
-// insert inserts a Finds instance into the [Moment-Db].[moment].[Finds] table.
-func (fSet Finds) insert(db BaseRunner, c *dba.Trans) (rowCnt int64, err error) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
-
-	insert := sq.Insert("[moment].[Finds]").Columns("[MomentID]", "[UserID]", "[Found]", "[FindDate]")
-	for _, f := range fSet {
-		insert = insert.Values(f.momentID, f.userID, f.found, f.findDate)
-	}
-
-	res, err := insert.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	rowCnt, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	return
-}
-
-// values returns a string of parameterized values for an Finds Insert query.
-func (fSet Finds) values() (values string) {
-	vSlice := make([]string, len(fSet))
-	for i := 0; i < len(fSet); i++ {
-		vSlice[i] = "(?, ?, ?, ?)"
-	}
-	values = strings.Join(vSlice, ", ")
-
-	return
-}
-
-// args returns an slice of empty interfaces that hold the arguments for a parameterized query.
-func (fSet Finds) args() (args []interface{}, err error) {
-	findFieldCnt := 4
-	argsCnt := len(fSet) * findFieldCnt
-	args = make([]interface{}, argsCnt)
-
-	for i, f := range fSet {
-		j := 4 * i
-		args[j] = f.momentID
-		args[j+1] = f.userID
-		args[j+2] = f.found
-		args[j+3] = f.findDate
-	}
-
-	return
-}
-
-// delete deletes a Finds instance from the [Moment-Db].[moment].[Finds] table.
-func (fSet Finds) delete() (rowCnt int64, err error) {
-	c := dba.OpenTx()
-	defer func() { c.Close(err) }()
-
-	var rAff int64
-	for _, f := range fSet {
-		rAff, err = f.delete(c)
-		if err != nil {
-			Error.Println(err)
-			rowCnt = 0
-			return
-		}
-		rowCnt += rAff
-	}
-
-	return
-}
-
-// SharesRow is a row in the [Moment-Db].[moment].[Shares] table.
-type SharesRow struct {
-	mID
-	uID
-	all         bool
-	recipientID string
-	err         error
-}
-
-// String returns a string representation of a SharesRow instance.
-func (s SharesRow) String() string {
-
-	return fmt.Sprintf("momentID: %v\n"+
-		"userID: %v\n"+
-		"all: %v\n"+
-		"recipientID: %v\n",
-		s.momentID,
-		s.userID,
-		s.all,
-		s.recipientID)
-}
-
-// delete deletes a SharesRow instance from [Moment-Db].[moment].[Shares] table.
-func (s *SharesRow) delete(db sq.BaseRunner, c *dba.Trans) (affCnt int64, err error) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
-
-	whereM := map[string]interface{}{
-		"[MomentID]":    s.momentID,
-		"[UserID]":      s.userID,
-		"[RecipientID]": s.recipientID,
-	}
-	delete := sq.Delete("[moment].[Shares]").Where(whereM)
-
-	res, err := delete.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	affCnt, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	return
-}
-
-// Shares is a slice of pointers to SharesRow instances.
-type Shares []*SharesRow
-
-// Share is an exported package that allows the insertion of a
-// Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (sSlice Shares) Share() (rowCnt int64, err error) {
-	rowCnt, err = sSlice.insert()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	return
-}
-
-// insert inserts a Shares instance into [Moment-Db].[moment].[Shares] table.
-func (sSlice Shares) insert(db sq.BaseRunner) (rowCnt int64, err error) {
-
-	insert := sq.Insert("[moment].[Shares]").Columns("[MomentID], [UserID], [All], [RecipientID]")
-	for _, s := range sSlice {
-		insert = insert.Values(s.momentID, s.userID, s.all, s.recipientID)
-	}
-
-	res, err := insert.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	rowCnt, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-
-	return
-}
-
-// values returns a string of parameterized values for a Shares insert query.
-func (sSlice Shares) values() (values string) {
-	valuesSlice := make([]string, len(sSlice))
-	for i := 0; i < len(valuesSlice); i++ {
-		valuesSlice[i] = "(?, ?, ?, ?)"
-	}
-	values = strings.Join(valuesSlice, ", ")
-	return
-}
-
-// args returns an slice of empty interfaces that hold the arguments for a parameterized query.
-func (sSlice Shares) args() (args []interface{}) {
-	SharesFieldCnt := 4
-	argsCnt := len(sSlice) * SharesFieldCnt
-	args = make([]interface{}, argsCnt)
-
-	for i, s := range sSlice {
-		j := i * 4
-		args[j] = s.momentID
-		args[j+1] = s.userID
-		args[j+2] = s.all
-		args[j+3] = s.recipientID
-	}
-
-	return
-}
-
-// delete deletes an instance of Shares from the [Moment-Db].[moment].[Shares] table.
-func (sSlice Shares) delete() (rowCnt int64, err error) {
-	c := dba.OpenTx()
-	defer func() { c.Close(err) }()
-
-	var affCnt int64
-	for _, s := range sSlice {
-		affCnt, err = s.delete(c)
-		if err != nil {
-			Error.Println(err)
-			rowCnt = 0
-			return
-		}
-		rowCnt += affCnt
-	}
-	return
-}
-
-// Location is a geographical point identified by longitude, latitude.
-type Location struct {
-	latitude  float32
-	longitude float32
-	err       error
-}
-
-// String returns the string representation of a Location instance.
-func (l Location) String() string {
-	return fmt.Sprintf("latitude: %v\nlongitude: %v\n", l.latitude, l.longitude)
-}
-
-func (l *Location) balloon() (lRange []interface{}) {
-	lRange = []interface{}{
-		l.latitude - 3,
-		l.latitude + 3,
-		l.longitude - 3,
-		l.longitude + 3,
-	}
-
-	return
-}
-
-// MomentsRow is a row in the [Moment-Db].[moment].[Moments] table.
-// It is composed of various fields and a Location instance.
-type MomentsRow struct {
-	Location
-	mID
-	uID
-	public     bool
-	hidden     bool
-	createDate *time.Time
-	err        error
-}
-
-// String returns a string representation of a MomentsRow instance.
-func (m MomentsRow) String() string {
-	return fmt.Sprintf("id: %v\n"+
-		"userID: %v\n"+
-		"Location: %v\n"+
-		"public: %v\n"+
-		"hidden: %v\n"+
-		"createDate: %v\n",
-		m.momentID,
-		m.userID,
-		m.Location,
-		m.public,
-		m.hidden,
-		m.createDate)
-}
-
-var ErrorMediaPointerNil = errors.New("md *Media is nil.")
-
-// CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
-func (mc *MomentClient) CreatePublic(db sq.BaseRunner, m *MomentsRow, media *Media) {
-	switch {
-	case media == nil:
-		Error.Println(ErrorMediaPointerNil)
-		mc.err = ErrorParameterEmpty
-		return
-	case m == nil:
-		Error.Println(ErrorParameterEmpty)
-		mc.err = ErrorParameterEmpty
-		return
-	}
-
-	mID, err := m.insert(db, c)
-	if err != nil {
-		Error.Println(err)
-		mc.err = err
-		return
-	}
-	m.momentID = mID
-
-	for _, p := range *media {
-		p.setMomentID(m.momentID)
-		if p.err != nil {
-			Error.Println(err)
-			mc.err = err
-			return
-		}
-	}
-	if _, err = media.insert(db, c); err != nil {
-		Error.Println(err)
-		mc.err = err
-		return
-	}
-
-	return
-}
-
-var ErrorFindsPointerNil = errors.New("finds *Finds pointer is empty.")
-
-// CreatePrivate creates a MomentsRow in [Moment-Db].[moment].[Moments] where Public=true
-// and creates Finds in [Moment-Db].[moment].[Finds].
-func (mc *MomentClient) CreatePrivate(db sq.BaseRunner, m *MomentsRow, media *Media, finds *Finds) {
-	if media == nil {
-		Error.Println(ErrorParameterEmpty)
-		mc.err = ErrorParameterEmpty
-		return
-	}
-	if finds == nil {
-		Error.Println(ErrorParameterEmpty)
-		mc.err = ErrorParameterEmpty
-		return
-	}
-
-	mID := m.insert(db)
-	if err := m.Err(); err != nil {
-		Error.Println(err)
-		mc.err = err
-		return
-	}
-	m.momentID = mID
-
-	for _, p := range *media {
-		p.setMomentID(m.momentID)
-	}
-
-	for _, p := range *finds {
-		p.setMomentID(m.momentID)
-	}
-
-	if _, err = media.insert(db); err != nil {
-		Error.Println(err)
-		mc.err = err
-		return
-	}
-	if _, err = finds.insert(db); err != nil {
-		Error.Println(err)
-		mc.err = err
-		return
-	}
-
-	return
-}
-
-// insert inserts a MomentsRow into the [Moment-Db].[moment].[Moments] table.
-func (m *MomentsRow) insert(db sq.BaseRunner) (mID int64) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
-
-	insert := sq.Insert("[moment].[Moments]").
-		Columns("[UserID]", "[Latitude]", "[Longitude]", "[Public]", "[Hidden]", "[CreateDate]").
-		Values(m.userID, m.latitude, m.longitude, m.public, m.hidden, m.createDate)
-
-	res, err := insert.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-		return
-	}
-
-	mID, err = res.LastInsertId()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-		return
-	}
-	m.momentID = mID
-
-	return
-}
-
-// delete deletes a MomentsRow from [Moment-Db].[moment].[Moments].
-func (m *MomentsRow) delete(db sq.BaseRunner) (cnt int64) {
-	if c == nil {
-		c = dba.OpenTx()
-		defer func() { c.Close(err) }()
-	}
-
-	delete := sq.Delete("[moment].[Moments]").Where("[ID]", m.momentID)
-
-	res, err := delete.RunWith(db).Exec()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-		return
-	}
-	cnt, err = res.RowsAffected()
-	if err != nil {
-		Error.Println(err)
-		m.err = err
-	}
-	return
-}
 
 // Result is grouping of a *MomentsRow with its related *FindsRow(s), *MediaRow(s), and *SharesRow(s).
 type Result struct {
@@ -1271,10 +1031,10 @@ func (m Media) sliceToMap() (mm MediaMap) {
 const (
 	momentSchema = "[moment]"
 
-	momentAlias = "m"
-	mediaAlias  = "med"
-	sharesAlias = "s"
-	findsAlias  = "f"
+	momentsAlias = "m"
+	mediaAlias   = "md"
+	sharesAlias  = "s"
+	findsAlias   = "f"
 
 	noJoin  = ""
 	noAlias = ""
@@ -1448,15 +1208,10 @@ type LocationSelector interface {
 	LocationLost(sq.BaseRunner, *Location, string) ResultsMap
 }
 
-type MomentClient struct {
-	err error
-}
-
-func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string) (r ResultsMap) {
+func (mc *MomentClient) LocationShared(l *Location, me string) (r ResultsMap, err error) {
 	if l == nil || m == "" {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return r, ErrorVariableEmpty
 	}
 
 	query := momentsQuery(Shared)
@@ -1469,16 +1224,14 @@ func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string)
 	r, err = process(query, momentsResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
 
-func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) (r ResultsMap) {
+func (mc *MomentClient) LocationPublic(l *Location) (r ResultsMap, err error) {
 	if l == nil {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return r, ErrorVariableEmpty
 	}
 
 	query := momentsQuery(Public)
@@ -1490,16 +1243,14 @@ func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) (r Results
 	r, err = process(query, publicResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
 
-func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) (r ResultsMap) {
+func (mc *MomentClient) LocationHidden(l *Location) (r ResultsMap, err error) {
 	if l == nil {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return r, ErrorVariableEmpty
 	}
 
 	query := lostQuery()
@@ -1511,16 +1262,14 @@ func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) (r Results
 	r, err = process(query, lostResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
 
-func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) (r ResultsMap) {
+func (mc *MomentClient) LocationLost(l *Location, me string) (r ResultsMap, err error) {
 	if l == nil || me == "" {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return r, ErrorVariableEmpty
 	}
 
 	query := lostQuery()
@@ -1534,7 +1283,6 @@ func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) (
 	r, err = process(query, lostResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
@@ -1545,11 +1293,10 @@ type UserSelector interface {
 	UserFound(sq.BaseRunner, string) ResultsMap
 }
 
-func (mc *MomentClient) UserShared(db sq.BaseRunner, me string, u string) (r ResultsMap) {
+func (mc *MomentClient) UserShared(me string, u string) (r ResultsMap, err error) {
 	if me == "" || u == "" {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return r, ErrorVariableEmpty
 	}
 
 	query := momentsQuery(Shared)
@@ -1565,11 +1312,10 @@ func (mc *MomentClient) UserShared(db sq.BaseRunner, me string, u string) (r Res
 	return
 }
 
-func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (r ResultsMap) {
+func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (r ResultsMap, err error) {
 	if me == "" {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return ErrorVariableEmpty
 	}
 
 	query := momentsQuery(Left)
@@ -1581,16 +1327,14 @@ func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (r ResultsMap) {
 	r, err = process(db, query, leftResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
 
-func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) (r ResultsMap) {
+func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) (r ResultsMap, err error) {
 	if me == "" {
 		Error.Println(ErrorVariableEmpty)
-		mc.err = ErrorVariableEmpty
-		return
+		return ErrorVariableEmpty
 	}
 
 	query := momentsQuery(Found)
@@ -1606,10 +1350,9 @@ func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) (r ResultsMap) {
 	ff := findsFrom(query, momentsJoin(findsAlias))
 	query.SetFroms(ff)
 
-	r, err = process(db, query, foundResults)
+	r, err = process(query, foundResults)
 	if err != nil {
 		Error.Println(err)
-		mc.err = err
 	}
 	return
 }
