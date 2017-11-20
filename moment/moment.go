@@ -97,7 +97,7 @@ func (mc *MomentClient) Err() error {
 
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
 func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
-	if err := f.isFound(); err != nil {
+	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -114,7 +114,7 @@ func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
 
 // FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
 func (mc *MomentClient) FindPrivate(f *FindsRow) (err error) {
-	if err := f.isFound(); err != nil {
+	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -218,8 +218,9 @@ func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*Finds
 	return
 }
 
-type Momenter interface {
-	insert(sq.BaseRunner, interface{}) (int64, error)
+type MomentDber interface {
+	insert(interface{}) (int64, error)
+	update(interface{}) int64
 }
 
 type DbProcess struct {
@@ -272,8 +273,7 @@ func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
 		return
 	}
 
-	var resVal int64
-	switch _ := i.(type) {
+	switch v := i.(type) {
 	case *MomentsRow:
 		resVal, err = res.LastInsertId()
 	default:
@@ -801,233 +801,6 @@ func checkUserIDShort(id string) (err error) {
 
 var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true and f.findDate=*time.Time{}")
 
-// Result is grouping of a *MomentsRow with its related *FindsRow(s), *MediaRow(s), and *SharesRow(s).
-type Result struct {
-	moment *MomentsRow
-	finds  Finds
-	media  Media
-	shares Shares
-}
-
-// Results is a slice of *Result.
-type Results []*Result
-
-// ResultMap is a grouping of a *MomentsRow and mappingts to its related *FindsRow(s), *MediaRow(s), and *SharesRow(s).
-type ResultMap struct {
-	moment *MomentsRow
-	finds  FindsMap
-	media  MediaMap
-	shares SharesMap
-}
-
-// ResultsMap is a mapping of *MomentsRow.momentId to a *Result
-type ResultsMap map[int64]*ResultMap
-
-var ErrorTypeNotImplemented = errors.New("Type switch does not handle specified type.")
-
-func (rm ResultsMap) add(mRow *MomentsRow, rs ...interface{}) (err error) {
-	r := new(ResultMap)
-	r.moment = mRow
-	for _, i := range rs {
-		switch v := i.(type) {
-		case *MediaRow:
-			r.media = make(MediaMap)
-			if err = r.media.add(v); err != nil {
-				Error.Println(err)
-				return
-			}
-		case *FindsRow:
-			r.finds = make(FindsMap)
-			if err = r.finds.add(v); err != nil {
-				Error.Println(err)
-				return
-			}
-		case *SharesRow:
-			r.shares = make(SharesMap)
-			if err = r.shares.add(v); err != nil {
-				Error.Println(err)
-				return
-			}
-		default:
-			Error.Println(err)
-			return ErrorTypeNotImplemented
-		}
-	}
-	rm[mRow.momentID] = r
-	return
-}
-func (rs ResultsMap) exists(mRow *MomentsRow) bool {
-	_, ok := rs[mRow.momentID]
-	return ok
-}
-func (rs ResultsMap) append(mRow *MomentsRow, is ...interface{}) (err error) {
-	mID := mRow.momentID
-	for _, i := range is {
-		switch v := i.(type) {
-		case *MediaRow:
-			if !rs[mID].media.exists(v) {
-				if err = rs[mID].media.add(v); err != nil {
-					Error.Println(err)
-					return
-				}
-			}
-		case *FindsRow:
-			if !rs[mID].finds.exists(v) {
-				if err = rs[mID].finds.add(v); err != nil {
-					Error.Println(err)
-					return
-				}
-			}
-		case *SharesRow:
-			if !rs[mID].shares.exists(v) {
-				if err = rs[mID].shares.add(v); err != nil {
-					Error.Println(err)
-					return
-				}
-			}
-		default:
-			Error.Println(ErrorTypeNotImplemented)
-			return ErrorTypeNotImplemented
-		}
-	}
-	return
-}
-
-func (rs ResultsMap) mapToSlice() (r Results) {
-	r = make(Results, len(rs))
-	i := 0
-	for _, v := range rs {
-		newR := &Result{
-			moment: v.moment,
-			media:  v.media.mapToSlice(),
-			finds:  v.finds.mapToSlice(),
-			shares: v.shares.mapToSlice(),
-		}
-		r[i] = newR
-		i++
-	}
-	return
-}
-
-// SharesMap is a map of pointers to SharesRow instances.
-type SharesMap map[[2]string]*SharesRow
-
-// add inserts a pointer to a SharesRow instance into the SharesMap receiver.
-func (sm SharesMap) add(s *SharesRow) (err error) {
-	if util.IsEmpty(s) {
-		return ErrorVariableEmpty
-	}
-	index := [2]string{s.userID, s.recipientID}
-	sm[index] = s
-	return
-}
-
-// exists checks if the specified SharesRow instance is already in the SharesMap receiver.
-func (sm SharesMap) exists(s *SharesRow) bool {
-	index := [2]string{s.userID, s.recipientID}
-	_, ok := sm[index]
-	return ok
-}
-
-// mapToSlice converts a SharesMap instance into a Shares instance.
-func (sm SharesMap) mapToSlice() (s Shares) {
-	s = make(Shares, len(sm))
-	var i int
-	for _, v := range sm {
-		s[i] = v
-		i++
-	}
-	return
-}
-
-// sliceToMap converts a Shares instance to a SharesMap instance
-func (s Shares) sliceToMap() (sm SharesMap) {
-	sm = make(SharesMap)
-	for _, v := range s {
-		index := [2]string{v.userID, v.recipientID}
-		sm[index] = v
-	}
-	return
-}
-
-// FindsMap is a map of pointers to FindsRow instances.
-type FindsMap map[string]*FindsRow
-
-// add inserts a pointer to a FindsRow instance into the Findsmap receiver.
-func (fm FindsMap) add(f *FindsRow) (err error) {
-	if util.IsEmpty(f) {
-		Error.Println(ErrorVariableEmpty)
-		return ErrorVariableEmpty
-	}
-	fm[f.userID] = f
-	return
-}
-
-// exists checks if the f *FindsRow exists in the FindsMap receiver.
-func (fm FindsMap) exists(f *FindsRow) bool {
-	_, ok := fm[f.userID]
-	return ok
-}
-
-// mapToSlice converts a FindsMap instance into a Finds instance.
-func (fm FindsMap) mapToSlice() (f Finds) {
-	f = make(Finds, len(fm))
-	var i int
-	for _, v := range fm {
-		f[i] = v
-		i++
-	}
-	return
-}
-
-// sliceToMap converts a Shares instance into a SharesMap instance.
-func (f Finds) sliceToMap() (fm FindsMap) {
-	fm = make(FindsMap)
-	for _, v := range f {
-		fm[v.userID] = v
-	}
-	return
-}
-
-// MediaMap is a map of pointers to MediaRow instances.
-type MediaMap map[uint8]*MediaRow
-
-// add inserts a pointer to a MediaRow instance into the MediaMap receiver.
-func (mp MediaMap) add(md *MediaRow) (err error) {
-	if util.IsEmpty(md) {
-		Error.Println(ErrorVariableEmpty)
-		return ErrorVariableEmpty
-	}
-	mp[md.mType] = md
-	return
-}
-
-// exists checks if the specified MediaRow instance is already in the MediaMap receiver.
-func (mp MediaMap) exists(md *MediaRow) bool {
-	_, ok := mp[md.mType]
-	return ok
-}
-
-// mapToSlice converts a MediaMap instance into a Media instance.
-func (mm MediaMap) mapToSlice() (m Media) {
-	m = make(Media, len(mm))
-	var i int
-	for _, v := range mm {
-		m[i] = v
-		i++
-	}
-	return
-}
-
-// sliceToMap converts a Media instance into MediaMap instance.
-func (m Media) sliceToMap() (mm MediaMap) {
-	mm = make(MediaMap)
-	for _, v := range m {
-		mm[v.mType] = v
-	}
-	return
-}
-
 const (
 	momentSchema = "[moment]"
 
@@ -1387,7 +1160,7 @@ func process(db sq.BaseRunner, query *sq.SelectBuilder, rowHandler func(*sql.Row
 	return
 }
 
-func momentsResults(rows *sql.Rows) (rm ResultsMap, err error) {
+func momentsResults(rows *sql.Rows) (rm map[int64]*moments, err error) {
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1405,7 +1178,16 @@ func momentsResults(rows *sql.Rows) (rm ResultsMap, err error) {
 		&md.dir,
 	}
 
-	rm = make(ResultsMap, 0)
+	type moments struct {
+		mID
+		uID
+		public bool
+		hidden bool
+		Location
+		createDate *time.Time
+		media      []*MediaRow
+	}
+	rm = make(map[int64]*moments)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
@@ -1418,22 +1200,27 @@ func momentsResults(rows *sql.Rows) (rm ResultsMap, err error) {
 			return
 		}
 
-		if rm.exists(m) {
-			if err = rm.append(m, md); err != nil {
-				Error.Println(err)
-				return
+		r := new(moments)
+		if r, ok := rm[m.momentID]; !ok {
+			r = &moments{
+				momentID:   m.momentID,
+				userID:     m.userID,
+				public:     m.public,
+				hidden:     m.hidden,
+				latitude:   m.latitude,
+				longitude:  m.longitude,
+				createDate: m.createDate,
+				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
 			}
+			rm[m.momentID] = r
 		} else {
-			if err = rm.add(m, md); err != nil {
-				Error.Println(err)
-				return
-			}
+			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
 	}
 	return
 }
 
-func publicResults(rows *sql.Rows) (rm ResultsMap, err error) {
+func publicResults(rows *sql.Rows) (rm map[int64]*publicMoment, err error) {
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1449,7 +1236,14 @@ func publicResults(rows *sql.Rows) (rm ResultsMap, err error) {
 		&md.dir,
 	}
 
-	rm = make(ResultsMap, 0)
+	type publicMoment struct {
+		mID
+		uID
+		Location
+		createDate *time.Time
+		media      []*MediaRow
+	}
+	rm = make(map[int64]*publicMoment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
@@ -1462,22 +1256,24 @@ func publicResults(rows *sql.Rows) (rm ResultsMap, err error) {
 			return
 		}
 
-		if rm.exists(m) {
-			if err = rm.append(m, md); err != nil {
-				Error.Println(err)
-				return
+		r := new(publicMoment)
+		if r, ok := rm[m.momentID]; !ok {
+			r = &publicMoment{
+				momentID:  m.momentID,
+				userID:    m.userID,
+				latitude:  m.latitude,
+				longitude: m.longitude,
+				media:     []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
 			}
+			rm[m.momentID] = r
 		} else {
-			if err = rm.add(m, md); err != nil {
-				Error.Println(err)
-				return
-			}
+			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
 	}
 	return
 }
 
-func leftResults(rows *sql.Rows) (rm ResultsMap, err error) {
+func leftResults(rows *sql.Rows) (rm map[int64]*leftMoment, err error) {
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
@@ -1496,7 +1292,17 @@ func leftResults(rows *sql.Rows) (rm ResultsMap, err error) {
 		&findDate,
 	}
 
-	rm = make(ResultsMap, 0)
+	type leftMoment struct {
+		mID
+		uID
+		public bool
+		hidden bool
+		Location
+		createDate *time.Time
+		media      []*MediaRow
+		finds      map[string]*FindsRow
+	}
+	rm = make(map[int64]*leftMoment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
@@ -1513,22 +1319,31 @@ func leftResults(rows *sql.Rows) (rm ResultsMap, err error) {
 			return
 		}
 
-		if rm.exists(m) {
-			if err = rm.append(m, md, f); err != nil {
-				Error.Println(err)
-				return
+		r := new(leftMoment)
+		if r, ok := rm[m.momentID]; !ok {
+			r = &leftMoment{
+				momentID:   m.momentID,
+				userID:     m.userID,
+				public:     m.public,
+				hidden:     m.hidden,
+				latitude:   m.latitude,
+				longitude:  m.longitude,
+				createDate: m.createDate,
+				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
+				finds:      map[string]*FindsRow{&FindsRow{userID: f.userID, findDate: f.findDate}},
 			}
 		} else {
-			if err = rm.add(m, md, f); err != nil {
-				Error.Println(err)
-				return
+			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
+			if _, ok = r.finds[f.userID]; !ok {
+				r.finds[f.userID] = &FindsRow{userID: f.userID, findDate: f.findDate}
 			}
 		}
 	}
 	return
 }
 
-func foundResults(rows *sql.Rows) (rm ResultsMap, err error) {
+func foundResults(rows *sql.Rows) (rm map[uint64]*foundMoment, err error) {
+
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
@@ -1547,7 +1362,17 @@ func foundResults(rows *sql.Rows) (rm ResultsMap, err error) {
 		&findDate,
 	}
 
-	rm = make(ResultsMap, 0)
+	type foundMoment struct {
+		mID
+		uID
+		public bool
+		hidden bool
+		Location
+		createDate *time.Time
+		media      []*MediaRow
+		findDate   *time.Time
+	}
+	rm = make(map[uint64]*foundMoment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
@@ -1564,23 +1389,31 @@ func foundResults(rows *sql.Rows) (rm ResultsMap, err error) {
 			return
 		}
 
-		if rm.exists(m) {
-			if err = rm.append(m, md, f); err != nil {
-				Error.Println(err)
-				return
+		r := new(foundMoment)
+		if r, ok := rm[m.momentID]; !ok {
+			r = foundMoment{
+				momentID:   m.momentID,
+				userID:     m.userID,
+				public:     m.public,
+				hidden:     m.hidden,
+				latitude:   m.latitude,
+				longitude:  m.longitude,
+				createDate: m.createDate,
+				media: []*MediaRow{
+					&MediaRow{message: md.message, mType: md.mType, dir: md.dir},
+				},
+				findDate: f.findDate,
 			}
+			rm[m.momentID] = r
 		} else {
-			if err = rm.add(m, md, f); err != nil {
-				Error.Println(err)
-				return
-			}
+			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
 	}
 	return
 
 }
 
-func lostResults(rows *sql.Rows) (rm ResultsMap, err error) {
+func lostResults(rows *sql.Rows) (rs []*lostMoment, err error) {
 	m := new(MomentsRow)
 	dest := []interface{}{
 		&m.momentID,
@@ -1588,17 +1421,17 @@ func lostResults(rows *sql.Rows) (rm ResultsMap, err error) {
 		&m.longitude,
 	}
 
-	rm = make(ResultsMap, 0)
+	type lostMoment struct {
+		mID
+		Location
+	}
+	rm = make([]*lostMoment, 0)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
 			return
 		}
-		newR := &ResultMap{
-			moment: m,
-		}
-		rm[m.momentID] = newR
+		rm = append(rm, &lostMoment{momentID: m.momentID, latitude: m.latitude, longitude: m.longitude})
 	}
-
 	return
 }
