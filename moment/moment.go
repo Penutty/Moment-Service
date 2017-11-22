@@ -85,14 +85,7 @@ func MomentDB() *sql.DB {
 }
 
 type MomentClient struct {
-	proc MomentDber
-	err  error
-}
-
-func NewMomentClient(m MomentDber) *MomentClient {
-	return &MomentClient{
-		proc: m,
-	}
+	err error
 }
 
 func (mc *MomentClient) Err() error {
@@ -100,7 +93,7 @@ func (mc *MomentClient) Err() error {
 }
 
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
-func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
+func (mc *MomentClient) FindPublic(db sq.BaseRunner, f *FindsRow) (cnt int64, err error) {
 	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
@@ -109,7 +102,7 @@ func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
 	fs := []*FindsRow{
 		f,
 	}
-	cnt, err = mc.proc.insert(fs)
+	cnt, err = insert(db, fs)
 	if err != nil {
 		Error.Println(err)
 	}
@@ -117,13 +110,13 @@ func (mc *MomentClient) FindPublic(f *FindsRow) (cnt int64, err error) {
 }
 
 // FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
-func (mc *MomentClient) FindPrivate(f *FindsRow) (err error) {
+func (mc *MomentClient) FindPrivate(db sq.BaseRunner, f *FindsRow) (err error) {
 	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
 	}
 
-	if err = mc.proc.update(f); err != nil {
+	if err = update(db, f); err != nil {
 		Error.Println(err)
 	}
 	return
@@ -131,14 +124,14 @@ func (mc *MomentClient) FindPrivate(f *FindsRow) (err error) {
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (mc *MomentClient) Share(ss []*SharesRow) (cnt int64, err error) {
+func (mc *MomentClient) Share(db sq.BaseRunner, ss []*SharesRow) (cnt int64, err error) {
 	if len(ss) == 0 {
 		Error.Println(ErrorParameterEmpty)
 		err = ErrorParameterEmpty
 		return
 	}
 
-	cnt, err = mc.proc.insert(ss)
+	cnt, err = insert(db, ss)
 	if err != nil {
 		Error.Println(err)
 	}
@@ -148,14 +141,14 @@ func (mc *MomentClient) Share(ss []*SharesRow) (cnt int64, err error) {
 var ErrorMediaPointerNil = errors.New("md *Media is nil.")
 
 // CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
-func (mc *MomentClient) CreatePublic(m *MomentsRow, ms []*MediaRow) (err error) {
+func (mc *MomentClient) CreatePublic(db sq.BaseRunner, m *MomentsRow, ms []*MediaRow) (err error) {
 	if len(ms) == 0 || m == nil {
 		Error.Println(ErrorParameterEmpty)
 		return ErrorParameterEmpty
 	}
 
 	var mID int64
-	if mID, err = mc.proc.insert(m); err != nil {
+	if mID, err = insert(db, m); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -168,7 +161,7 @@ func (mc *MomentClient) CreatePublic(m *MomentsRow, ms []*MediaRow) (err error) 
 			return
 		}
 	}
-	if _, err = mc.proc.insert(ms); err != nil {
+	if _, err = insert(db, ms); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -180,13 +173,13 @@ var ErrorFindsPointerNil = errors.New("finds *Finds pointer is empty.")
 
 // CreatePrivate creates a MomentsRow in [Moment-Db].[moment].[Moments] where Public=true
 // and creates Finds in [Moment-Db].[moment].[Finds].
-func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*FindsRow) (err error) {
+func (mc *MomentClient) CreatePrivate(db sq.BaseRunner, m *MomentsRow, ms []*MediaRow, fs []*FindsRow) (err error) {
 	if m == nil || len(ms) == 0 || len(fs) == 0 {
 		Error.Println(ErrorParameterEmpty)
 		return ErrorParameterEmpty
 	}
 
-	mID, err := mc.proc.insert(m)
+	mID, err := insert(db, m)
 	if err != nil {
 		Error.Println(err)
 		return
@@ -209,11 +202,11 @@ func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*Finds
 		}
 	}
 
-	if _, err = mc.proc.insert(ms); err != nil {
+	if _, err = insert(db, ms); err != nil {
 		Error.Println(err)
 		return
 	}
-	if _, err = mc.proc.insert(fs); err != nil {
+	if _, err = insert(db, fs); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -221,27 +214,7 @@ func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*Finds
 	return
 }
 
-type MomentDber interface {
-	insert(interface{}) (int64, error)
-	update(interface{}) error
-	getdb() sq.BaseRunner
-}
-
-type DbProcess struct {
-	db sq.BaseRunner
-}
-
-func NewDbProcess(db sq.BaseRunner) *DbProcess {
-	return &DbProcess{
-		db: db,
-	}
-}
-
-func (p *DbProcess) getdb() sq.BaseRunner {
-	return p.db
-}
-
-func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
+func insert(db sq.BaseRunner, i interface{}) (resVal int64, err error) {
 	var insert sq.InsertBuilder
 	switch v := i.(type) {
 	case []*FindsRow:
@@ -268,13 +241,13 @@ func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
 	case *MomentsRow:
 		insert = sq.
 			Insert(momentSchema+"."+moments).
-			Columns(iD, userID, lat, long, public, hidden, createDate).
+			Columns(iD, userID, latStr, longStr, public, hidden, createDate).
 			Values(v.momentID, v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
 	default:
 		return resVal, ErrorTypeNotImplemented
 	}
 
-	res, err := insert.RunWith(p.db).Exec()
+	res, err := insert.RunWith(db).Exec()
 	if err != nil {
 		Error.Println(err)
 		return
@@ -293,7 +266,7 @@ func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
 	return
 }
 
-func (p *DbProcess) update(i interface{}) (err error) {
+func update(db sq.BaseRunner, i interface{}) (err error) {
 	var query sq.UpdateBuilder
 	switch v := i.(type) {
 	case *FindsRow:
@@ -304,7 +277,7 @@ func (p *DbProcess) update(i interface{}) (err error) {
 		return ErrorTypeNotImplemented
 	}
 
-	_, err = query.RunWith(p.db).Exec()
+	_, err = query.RunWith(db).Exec()
 	if err != nil {
 		Error.Println(err)
 	}
@@ -519,7 +492,7 @@ func (mc *MomentClient) NewFindsRow(mID int64, uID string, f bool, fd *time.Time
 	}
 	if !fr.found && *fr.findDate != emptyTime {
 		Error.Println(ErrorNotFoundFindDateExists)
-		mc.err = ErrorFoundFalseFindDateNil
+		mc.err = ErrorNotFoundFindDateExists
 		return
 	}
 
@@ -843,8 +816,8 @@ const (
 	iD         = "[ID]"
 	momentID   = "[MomentID]"
 	userID     = "[UserID]"
-	lat        = "[Latitude]"
-	long       = "[Longitude]"
+	latStr     = "[Latitude]"
+	longStr    = "[Longitude]"
 	public     = "[Public]"
 	hidden     = "[Hidden]"
 	createDate = "[CreateDate]"
@@ -863,8 +836,8 @@ const (
 var (
 	mLostColumns = []string{
 		momentsAlias + "." + iD,
-		momentsAlias + "." + lat,
-		momentsAlias + "." + long,
+		momentsAlias + "." + latStr,
+		momentsAlias + "." + longStr,
 	}
 	mTypeColumns = []string{
 		momentsAlias + "." + public,
@@ -882,8 +855,8 @@ var (
 
 func mLocationBetween(l *Location) map[string]interface{} {
 	return map[string]interface{}{
-		momentsAlias + "." + lat + " BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
-		momentsAlias + "." + long + " BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
+		momentsAlias + "." + latStr + " BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
+		momentsAlias + "." + longStr + " BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
 	}
 }
 
@@ -1023,13 +996,13 @@ type Client interface {
 }
 
 type LocationSelector interface {
-	LocationShared(*Location, string) ([]*Moment, error)
-	LocationPublic(*Location) ([]*Moment, error)
-	LocationHidden(*Location) ([]*Moment, error)
-	LocationLost(*Location, string) ([]*Moment, error)
+	LocationShared(sq.BaseRunner, *Location, string) ([]*Moment, error)
+	LocationPublic(sq.BaseRunner, *Location) ([]*Moment, error)
+	LocationHidden(sq.BaseRunner, *Location) ([]*Moment, error)
+	LocationLost(sq.BaseRunner, *Location, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) LocationShared(l *Location, me string) ([]*Moment, error) {
+func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
 	if l == nil || me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1042,10 +1015,10 @@ func (mc *MomentClient) LocationShared(l *Location, me string) ([]*Moment, error
 		Where(mLocationBetween(l)).
 		Where(sRecipientEquals(me))
 
-	return mc.selectMoments(query)
+	return mc.selectMoments(db, query)
 }
 
-func (mc *MomentClient) LocationPublic(l *Location) ([]*Moment, error) {
+func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) ([]*Moment, error) {
 	if l == nil {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1057,10 +1030,10 @@ func (mc *MomentClient) LocationPublic(l *Location) ([]*Moment, error) {
 		Where(mPublicEquals(true)).
 		Where(mHiddenEquals(false))
 
-	return mc.selectPublicMoments(query)
+	return mc.selectPublicMoments(db, query)
 }
 
-func (mc *MomentClient) LocationHidden(l *Location) ([]*Moment, error) {
+func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) ([]*Moment, error) {
 	if l == nil {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1072,10 +1045,10 @@ func (mc *MomentClient) LocationHidden(l *Location) ([]*Moment, error) {
 		Where(mPublicEquals(true)).
 		Where(mHiddenEquals(true))
 
-	return mc.selectLostMoments(query)
+	return mc.selectLostMoments(db, query)
 }
 
-func (mc *MomentClient) LocationLost(l *Location, me string) ([]*Moment, error) {
+func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
 	if l == nil || me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1089,16 +1062,16 @@ func (mc *MomentClient) LocationLost(l *Location, me string) ([]*Moment, error) 
 		Where(mPublicEquals(false)).
 		Where(fUserIDEquals(me))
 
-	return mc.selectLostMoments(query)
+	return mc.selectLostMoments(db, query)
 }
 
 type UserSelector interface {
-	UserShared(string, string) ([]*Moment, error)
-	UserLeft(string) ([]*Moment, error)
-	UserFound(string) ([]*Moment, error)
+	UserShared(sq.BaseRunner, string, string) ([]*Moment, error)
+	UserLeft(sq.BaseRunner, string) ([]*Moment, error)
+	UserFound(sq.BaseRunner, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) UserShared(me string, u string) ([]*Moment, error) {
+func (mc *MomentClient) UserShared(db sq.BaseRunner, me string, u string) ([]*Moment, error) {
 	if me == "" || u == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1110,9 +1083,9 @@ func (mc *MomentClient) UserShared(me string, u string) ([]*Moment, error) {
 		Where(sUserIDEquals(u)).
 		Where(sRecipientEquals(me))
 
-	return mc.selectMoments(query)
+	return mc.selectMoments(db, query)
 }
-func (mc *MomentClient) UserLeft(me string) (rs []*Moment, err error) {
+func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (rs []*Moment, err error) {
 	if me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1124,10 +1097,10 @@ func (mc *MomentClient) UserLeft(me string) (rs []*Moment, err error) {
 		Join(findsTbl(onMoments)).
 		Where(mUserIDEquals(me))
 
-	return mc.selectLeftMoments(query)
+	return mc.selectLeftMoments(db, query)
 }
 
-func (mc *MomentClient) UserFound(me string) ([]*Moment, error) {
+func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) ([]*Moment, error) {
 	if me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1140,7 +1113,7 @@ func (mc *MomentClient) UserFound(me string) ([]*Moment, error) {
 		Where(fUserIDEquals(me)).
 		Where(fFoundEquals(true))
 
-	return mc.selectFoundMoment(query)
+	return mc.selectFoundMoment(db, query)
 }
 
 func (mc *MomentClient) parseDatetime2(s string) *time.Time {
@@ -1152,8 +1125,8 @@ func (mc *MomentClient) parseDatetime2(s string) *time.Time {
 	return &t
 }
 
-func (mc *MomentClient) selectMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(mc.proc.getdb()).Query()
+func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
 		return
@@ -1212,8 +1185,8 @@ func (mc *MomentClient) selectMoments(query sq.SelectBuilder) (rs []*Moment, err
 
 }
 
-func (mc *MomentClient) selectPublicMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(mc.proc.getdb()).Query()
+func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
 		return
@@ -1266,8 +1239,8 @@ func (mc *MomentClient) selectPublicMoments(query sq.SelectBuilder) (rs []*Momen
 	return
 }
 
-func (mc *MomentClient) selectLostMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(mc.proc.getdb()).Query()
+func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
 		return
@@ -1301,8 +1274,8 @@ func (mc *MomentClient) selectLostMoments(query sq.SelectBuilder) (rs []*Moment,
 	return
 }
 
-func (mc *MomentClient) selectLeftMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(mc.proc.getdb()).Query()
+func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
 		return
@@ -1381,8 +1354,8 @@ func (mc *MomentClient) selectLeftMoments(query sq.SelectBuilder) (rs []*Moment,
 	return
 }
 
-func (mc *MomentClient) selectFoundMoment(query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(mc.proc.getdb()).Query()
+func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
 		return
