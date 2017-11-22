@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
-	"github.com/penutty/util"
 	"log"
 	"os"
 	"strconv"
@@ -38,6 +37,9 @@ const (
 	// minLong and maxLong represents the max and min values of the [moment].[Moments].[Longitude] column.
 	minLong = -90
 	maxLong = 90
+
+	// Datetime2 is the time.Time format this package uses to communicate DateTime2 values to Moment-Db.
+	Datetime2 = "2006-01-02 15:04:05"
 )
 
 var (
@@ -68,7 +70,9 @@ func init() {
 
 var (
 	ErrorPrivateHiddenMoment = errors.New("m *MomentsRow cannot be both private and hidden")
-	ErrorVariableEmpty       = errors.New("Variable is empty.")
+	ErrorParameterEmpty      = errors.New("Parameter is empty.")
+	ErrorFieldInvalid        = errors.New("A struct field is not in the state required.")
+	ErrorTypeNotImplemented  = errors.New("Type switch does not handle this type.")
 )
 
 // MomentDB creates *db.Sql instance.
@@ -134,7 +138,7 @@ func (mc *MomentClient) Share(ss []*SharesRow) (cnt int64, err error) {
 		return
 	}
 
-	cnt, err = mc.m.insert(ss)
+	cnt, err = mc.proc.insert(ss)
 	if err != nil {
 		Error.Println(err)
 	}
@@ -157,15 +161,14 @@ func (mc *MomentClient) CreatePublic(m *MomentsRow, ms []*MediaRow) (err error) 
 	}
 	m.momentID = mID
 
-	for _, mr := range *ms {
+	for _, mr := range ms {
 		mr.setMomentID(m.momentID)
 		if err = mr.err; err != nil {
 			Error.Println(err)
 			return
 		}
 	}
-	var rowCnt int64
-	if rowCnt, err = mc.proc.insert(ms); err != nil {
+	if _, err = mc.proc.insert(ms); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -198,7 +201,7 @@ func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*Finds
 		}
 	}
 
-	for _, f := range *fs {
+	for _, f := range fs {
 		f.setMomentID(m.momentID)
 		if f.err != nil {
 			Error.Println(f.err)
@@ -220,7 +223,8 @@ func (mc *MomentClient) CreatePrivate(m *MomentsRow, ms []*MediaRow, fs []*Finds
 
 type MomentDber interface {
 	insert(interface{}) (int64, error)
-	update(interface{}) int64
+	update(interface{}) error
+	getdb() sq.BaseRunner
 }
 
 type DbProcess struct {
@@ -231,6 +235,10 @@ func NewDbProcess(db sq.BaseRunner) *DbProcess {
 	return &DbProcess{
 		db: db,
 	}
+}
+
+func (p *DbProcess) getdb() sq.BaseRunner {
+	return p.db
 }
 
 func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
@@ -260,11 +268,10 @@ func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
 	case *MomentsRow:
 		insert = sq.
 			Insert(momentSchema+"."+moments).
-			Columns(iD, userID, lat, long, public, hidden, createdate).
+			Columns(iD, userID, lat, long, public, hidden, createDate).
 			Values(v.momentID, v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
 	default:
-		p.err = ErrorTypeNotImplemented
-		return
+		return resVal, ErrorTypeNotImplemented
 	}
 
 	res, err := insert.RunWith(p.db).Exec()
@@ -273,7 +280,7 @@ func (p *DbProcess) insert(i interface{}) (resVal int64, err error) {
 		return
 	}
 
-	switch v := i.(type) {
+	switch i.(type) {
 	case *MomentsRow:
 		resVal, err = res.LastInsertId()
 	default:
@@ -290,9 +297,9 @@ func (p *DbProcess) update(i interface{}) (err error) {
 	var query sq.UpdateBuilder
 	switch v := i.(type) {
 	case *FindsRow:
-		sM = map[string]interface{}{found: v.found, findDate: v.findDate}
-		wM = map[string]interface{}{momentID: v.momentID, userID: v.userID}
-		query = query.Table(momentSchema + "." + finds).Set(sM).Where(wM)
+		sM := map[string]interface{}{found: v.found, findDate: v.findDate}
+		wM := map[string]interface{}{momentID: v.momentID, userID: v.userID}
+		query = query.Table(momentSchema + "." + finds).SetMap(sM).Where(wM)
 	default:
 		return ErrorTypeNotImplemented
 	}
@@ -540,6 +547,12 @@ func (f FindsRow) String() string {
 		f.findDate)
 }
 
+func (f *FindsRow) isFound() error {
+	if f.found == true && f.findDate != new(time.Time) {
+		return nil
+	}
+	return ErrorFieldInvalid
+}
 func (f *FindsRow) setFindDate(fd *time.Time) {
 	if f.err != nil {
 		return
@@ -802,8 +815,6 @@ func checkUserIDShort(id string) (err error) {
 var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true and f.findDate=*time.Time{}")
 
 const (
-	momentSchema = "[moment]"
-
 	momentsAlias = "m"
 	mediaAlias   = "md"
 	sharesAlias  = "s"
@@ -821,119 +832,144 @@ const (
 	Shared
 	Found
 	Left
+
+	momentSchema = "[moment]"
+
+	moments = "[Moments]"
+	finds   = "[Finds]"
+	media   = "[Media]"
+	shares  = "[Shares]"
+
+	iD         = "[ID]"
+	momentID   = "[MomentID]"
+	userID     = "[UserID]"
+	lat        = "[Latitude]"
+	long       = "[Longitude]"
+	public     = "[Public]"
+	hidden     = "[Hidden]"
+	createDate = "[CreateDate]"
+
+	findDate = "[FindDate]"
+	found    = "[Found]"
+
+	recipientID = "[RecipientID]"
+	all         = "[All]"
+
+	message = "[Message]"
+	mtype   = "[Type]"
+	dir     = "[Dir]"
 )
 
 var (
 	mLostColumns = []string{
-		momentsAlias + ".[ID]",
-		momentsAlias + ".[Latitude]",
-		momentsAlias + ".[Longitude]",
+		momentsAlias + "." + iD,
+		momentsAlias + "." + lat,
+		momentsAlias + "." + long,
 	}
 	mTypeColumns = []string{
-		momentsAlias + ".[Public]",
-		momentsAlias + ".[Hidden]",
+		momentsAlias + "." + public,
+		momentsAlias + "." + hidden,
 	}
 	mUserID = []string{
-		momentsAlias + ".[UserID]",
+		momentsAlias + "." + userID,
 	}
 	mCreateDate = []string{
-		momentsAlias + ".[CreateDate]",
+		momentsAlias + "." + createDate,
 	}
 
-	moments   = momentSchema + ".[Moments] " + momentAlias
-	onMoments = momentAlias + ".[ID]"
+	onMoments = momentsAlias + "." + iD
 )
 
 func mLocationBetween(l *Location) map[string]interface{} {
 	return map[string]interface{}{
-		momentAlias + ".Latitude BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
-		momentAlias + ".Longitude BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
+		momentsAlias + "." + lat + " BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
+		momentsAlias + "." + long + " BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
 	}
 }
 
 func mPublicEquals(b bool) map[string]interface{} {
 	return map[string]interface{}{
-		momentAlias + ".[Public]": b,
+		momentsAlias + "." + public: b,
 	}
 }
 
 func mHiddenEquals(b bool) map[string]interface{} {
 	return map[string]interface{}{
-		momentAlias + ".[Hidden]": b,
+		momentsAlias + "." + hidden: b,
 	}
 }
 
 func mUserIDEquals(u string) map[string]interface{} {
 	return map[string]interface{}{
-		momentAlias + ".[UserID]": u,
+		momentsAlias + "." + userID: u,
 	}
 }
 
 var (
 	mdColumns = []string{
-		mediaAlias + ".[Message]",
-		mediaAlias + ".[Type]",
-		mediaAlias + ".[Dir]",
+		mediaAlias + "." + message,
+		mediaAlias + "." + mtype,
+		mediaAlias + "." + dir,
 	}
 
 	fUserID = []string{
-		findsAlias + ".[UserID]",
+		findsAlias + "." + userID,
 	}
 
 	fFindDate = []string{
-		findsAlias + ".[FindDate]",
+		findsAlias + "." + findDate,
 	}
 )
 
-func finds(on string) string {
-	finds = momentSchema + ".[Finds] " + findsAlias
+func findsTbl(on string) string {
+	f := momentSchema + "." + finds + " " + findsAlias
 	if on != "" {
-		finds += " ON " + findsAlias + ".[MomentID] = " + on
+		f += " ON " + findsAlias + "." + momentID + " = " + on
 	}
-	return finds
+	return f
 }
 
-func media(on string) string {
-	media := momentSchema + ".[Media] " + mediaAlias
+func mediaTbl(on string) string {
+	md := momentSchema + "." + media + " " + mediaAlias
 	if on != "" {
-		media += " ON " + mediaAlias + ".[MomentID] = " + on
+		md += " ON " + mediaAlias + "." + momentID + " = " + on
 	}
-	return media
+	return md
 }
 
 func fFoundEquals(b bool) map[string]interface{} {
 	return map[string]interface{}{
-		findsAlias + ".[Found]": b,
+		findsAlias + "." + found: b,
 	}
 }
 
 func fUserIDEquals(u string) map[string]interface{} {
 	return map[string]interface{}{
-		findsAlias + ".[UserID]": u,
+		findsAlias + "." + userID: u,
 	}
 }
 
-func shares(on string) string {
-	shares := momentSchema + ".[Shares] " + SharesAlias
+func sharesTbl(on string) string {
+	s := momentSchema + "." + shares + " " + sharesAlias
 	if on != "" {
-		shares += " ON " + sharesAlias + ".[MomentID] = " + on
+		s += " ON " + sharesAlias + "." + momentID + " = " + on
 	}
-	return shares
+	return s
 }
 
 func sRecipientEquals(me string) map[string]interface{} {
 	return map[string]interface{}{
-		"(" + sharesAlias + ".[RecipientID] = ? OR " + sharesAlias + ".[All] = 1)": me,
+		"(" + sharesAlias + "." + recipientID + " = ? OR " + sharesAlias + "." + all + " = 1)": me,
 	}
 }
 
-func sUserIDEquals(you) map[string]interface{} {
+func sUserIDEquals(you string) map[string]interface{} {
 	return map[string]interface{}{
-		sharesAlias + ".[UserID]": you,
+		sharesAlias + "." + userID: you,
 	}
 }
 
-func momentsQuery(mt momentsType) *sq.SelectBuilder {
+func momentsQuery(mt momentsType) sq.SelectBuilder {
 	cSet := [][]string{
 		mLostColumns,
 		mdColumns,
@@ -954,13 +990,13 @@ func momentsQuery(mt momentsType) *sq.SelectBuilder {
 	query := sq.
 		Select().
 		Columns(columns...).
-		From(moments).
-		Join(media(onMoments))
+		From(momentSchema + "." + moments + " " + momentsAlias).
+		Join(mediaTbl(onMoments))
 
 	return query
 }
 
-func lostQuery() *sq.SelectBuilder {
+func lostQuery() sq.SelectBuilder {
 	query := sq.
 		Select().
 		Columns(mLostColumns...).
@@ -969,42 +1005,50 @@ func lostQuery() *sq.SelectBuilder {
 	return query
 }
 
+type Moment struct {
+	momentID int64
+	userID   string
+	public   bool
+	hidden   bool
+	Location
+	createDate *time.Time
+	media      []*MediaRow
+	finds      []*FindsRow
+	shares     []*SharesRow
+}
+
 type Client interface {
 	LocationSelector
 	UserSelector
 }
 
 type LocationSelector interface {
-	LocationShared(sq.BaseRunner, *Location, string) ResultsMap
-	LocationPublic(sq.BaseRunner, *Location) ResultsMap
-	LocationHidden(sq.BaseRunner, *Location) ResultsMap
-	LocationLost(sq.BaseRunner, *Location, string) ResultsMap
+	LocationShared(*Location, string) ([]*Moment, error)
+	LocationPublic(*Location) ([]*Moment, error)
+	LocationHidden(*Location) ([]*Moment, error)
+	LocationLost(*Location, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) LocationShared(l *Location, me string) (r ResultsMap, err error) {
-	if l == nil || m == "" {
-		Error.Println(ErrorVariableEmpty)
-		return r, ErrorVariableEmpty
+func (mc *MomentClient) LocationShared(l *Location, me string) ([]*Moment, error) {
+	if l == nil || me == "" {
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := momentsQuery(Shared)
 
 	query = query.
-		Join(shares(onMoments)).
+		Join(sharesTbl(onMoments)).
 		Where(mLocationBetween(l)).
 		Where(sRecipientEquals(me))
 
-	r, err = process(query, momentsResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectMoments(query)
 }
 
-func (mc *MomentClient) LocationPublic(l *Location) (r ResultsMap, err error) {
+func (mc *MomentClient) LocationPublic(l *Location) ([]*Moment, error) {
 	if l == nil {
-		Error.Println(ErrorVariableEmpty)
-		return r, ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := momentsQuery(Public)
@@ -1013,17 +1057,13 @@ func (mc *MomentClient) LocationPublic(l *Location) (r ResultsMap, err error) {
 		Where(mPublicEquals(true)).
 		Where(mHiddenEquals(false))
 
-	r, err = process(query, publicResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectPublicMoments(query)
 }
 
-func (mc *MomentClient) LocationHidden(l *Location) (r ResultsMap, err error) {
+func (mc *MomentClient) LocationHidden(l *Location) ([]*Moment, error) {
 	if l == nil {
-		Error.Println(ErrorVariableEmpty)
-		return r, ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := lostQuery()
@@ -1032,135 +1072,93 @@ func (mc *MomentClient) LocationHidden(l *Location) (r ResultsMap, err error) {
 		Where(mPublicEquals(true)).
 		Where(mHiddenEquals(true))
 
-	r, err = process(query, lostResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectLostMoments(query)
 }
 
-func (mc *MomentClient) LocationLost(l *Location, me string) (r ResultsMap, err error) {
+func (mc *MomentClient) LocationLost(l *Location, me string) ([]*Moment, error) {
 	if l == nil || me == "" {
-		Error.Println(ErrorVariableEmpty)
-		return r, ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := lostQuery()
 
 	query = query.
-		Join(finds(onMoments)).
+		Join(findsTbl(onMoments)).
 		Where(mLocationBetween(l)).
 		Where(mPublicEquals(false)).
 		Where(fUserIDEquals(me))
 
-	r, err = process(query, lostResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectLostMoments(query)
 }
 
 type UserSelector interface {
-	UserShared(sq.BaseRunner, string, string) ResultsMap
-	UserLeft(sq.BaseRunner, string) ResultsMap
-	UserFound(sq.BaseRunner, string) ResultsMap
+	UserShared(string, string) ([]*Moment, error)
+	UserLeft(string) ([]*Moment, error)
+	UserFound(string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) UserShared(me string, u string) (r ResultsMap, err error) {
+func (mc *MomentClient) UserShared(me string, u string) ([]*Moment, error) {
 	if me == "" || u == "" {
-		Error.Println(ErrorVariableEmpty)
-		return r, ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := momentsQuery(Shared)
 	query = query.
-		Join(shares(onMoments)).
+		Join(sharesTbl(onMoments)).
 		Where(sUserIDEquals(u)).
 		Where(sRecipientEquals(me))
 
-	r, err = process(query, momentsResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectMoments(query)
 }
-
-func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (r ResultsMap, err error) {
+func (mc *MomentClient) UserLeft(me string) (rs []*Moment, err error) {
 	if me == "" {
-		Error.Println(ErrorVariableEmpty)
-		return ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := momentsQuery(Left)
 	query = query.
 		Columns(append(fUserID, fFindDate...)...).
-		Join(finds(onMoments)).
+		Join(findsTbl(onMoments)).
 		Where(mUserIDEquals(me))
 
-	r, err = process(db, query, leftResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectLeftMoments(query)
 }
 
-func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) (r ResultsMap, err error) {
+func (mc *MomentClient) UserFound(me string) ([]*Moment, error) {
 	if me == "" {
-		Error.Println(ErrorVariableEmpty)
-		return ErrorVariableEmpty
+		Error.Println(ErrorParameterEmpty)
+		return nil, ErrorParameterEmpty
 	}
 
 	query := momentsQuery(Found)
 	query = query.
 		Columns(fFindDate...).
-		From(finds(onMoments)).
+		From(findsTbl(onMoments)).
 		Where(fUserIDEquals(me)).
 		Where(fFoundEquals(true))
 
-	fdc := findsFindDateColumn(query)
-	query.SetColumns(fdc)
-
-	ff := findsFrom(query, momentsJoin(findsAlias))
-	query.SetFroms(ff)
-
-	r, err = process(query, foundResults)
-	if err != nil {
-		Error.Println(err)
-	}
-	return
+	return mc.selectFoundMoment(query)
 }
 
-var (
-	ErrorQueryStringEmpty = errors.New("Empty string passed into queryString parameter.")
-)
-
-func process(db sq.BaseRunner, query *sq.SelectBuilder, rowHandler func(*sql.Rows) (ResultsMap, error)) (r ResultsMap, err error) {
-	if util.IsEmpty(query) {
-		return r, ErrorVariableEmpty
+func (mc *MomentClient) parseDatetime2(s string) *time.Time {
+	t, err := time.Parse(Datetime2, findDate)
+	if err != nil {
+		Error.Println(err)
+		mc.err = err
 	}
+	return &t
+}
 
-	Info.Printf("\nQueryString:\n\n%v\n\n", query.ToSql())
-
-	rows, err := query.RunWith(db).Query()
+func (mc *MomentClient) selectMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(mc.proc.getdb()).Query()
 	if err != nil {
 		Error.Println(err)
 		return
 	}
 	defer rows.Close()
-
-	r, err = rowHandler(rows)
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	if err = rows.Err(); err != nil {
-		Error.Println(err)
-	}
-
-	return
-}
-
-func momentsResults(rows *sql.Rows) (rm map[int64]*moments, err error) {
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1178,37 +1176,26 @@ func momentsResults(rows *sql.Rows) (rm map[int64]*moments, err error) {
 		&md.dir,
 	}
 
-	type moments struct {
-		mID
-		uID
-		public bool
-		hidden bool
-		Location
-		createDate *time.Time
-		media      []*MediaRow
-	}
-	rm = make(map[int64]*moments)
+	rm := make(map[int64]*Moment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		m.createDate, err = dba.ParseDateTime2(createDate)
-		if err != nil {
+		m.createDate = mc.parseDatetime2(createDate)
+		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		r := new(moments)
 		if r, ok := rm[m.momentID]; !ok {
-			r = &moments{
+			r = &Moment{
 				momentID:   m.momentID,
 				userID:     m.userID,
 				public:     m.public,
 				hidden:     m.hidden,
-				latitude:   m.latitude,
-				longitude:  m.longitude,
+				Location:   Location{latitude: m.latitude, longitude: m.longitude},
 				createDate: m.createDate,
 				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
 			}
@@ -1217,10 +1204,21 @@ func momentsResults(rows *sql.Rows) (rm map[int64]*moments, err error) {
 			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
 	}
+	if err = rows.Err(); err != nil {
+		Error.Println(err)
+		return
+	}
 	return
+
 }
 
-func publicResults(rows *sql.Rows) (rm map[int64]*publicMoment, err error) {
+func (mc *MomentClient) selectPublicMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(mc.proc.getdb()).Query()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	defer rows.Close()
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1236,44 +1234,81 @@ func publicResults(rows *sql.Rows) (rm map[int64]*publicMoment, err error) {
 		&md.dir,
 	}
 
-	type publicMoment struct {
-		mID
-		uID
-		Location
-		createDate *time.Time
-		media      []*MediaRow
-	}
-	rm = make(map[int64]*publicMoment)
+	rm := make(map[int64]*Moment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		m.createDate, err = dba.ParseDateTime2(createDate)
-		if err != nil {
+		m.createDate = mc.parseDatetime2(createDate)
+		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		r := new(publicMoment)
 		if r, ok := rm[m.momentID]; !ok {
-			r = &publicMoment{
-				momentID:  m.momentID,
-				userID:    m.userID,
-				latitude:  m.latitude,
-				longitude: m.longitude,
-				media:     []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
+			r = &Moment{
+				momentID: m.momentID,
+				userID:   m.userID,
+				Location: Location{latitude: m.latitude, longitude: m.longitude},
+				media:    []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
 			}
 			rm[m.momentID] = r
 		} else {
 			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
 	}
+	if err = rows.Err(); err != nil {
+		Error.Println(err)
+		return
+	}
 	return
 }
 
-func leftResults(rows *sql.Rows) (rm map[int64]*leftMoment, err error) {
+func (mc *MomentClient) selectLostMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(mc.proc.getdb()).Query()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	defer rows.Close()
+
+	m := new(MomentsRow)
+	dest := []interface{}{
+		&m.momentID,
+		&m.latitude,
+		&m.longitude,
+	}
+
+	rs = make([]*Moment, 0)
+	for rows.Next() {
+		if err = rows.Scan(dest...); err != nil {
+			Error.Println(err)
+			return
+		}
+		rs = append(rs,
+			&Moment{
+				momentID: m.momentID,
+				Location: Location{latitude: m.latitude, longitude: m.longitude},
+			})
+
+	}
+	if err = rows.Err(); err != nil {
+		Error.Println(err)
+		return
+	}
+	return
+}
+
+func (mc *MomentClient) selectLeftMoments(query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(mc.proc.getdb()).Query()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	defer rows.Close()
+
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
@@ -1292,57 +1327,67 @@ func leftResults(rows *sql.Rows) (rm map[int64]*leftMoment, err error) {
 		&findDate,
 	}
 
-	type leftMoment struct {
-		mID
-		uID
-		public bool
-		hidden bool
-		Location
-		createDate *time.Time
-		media      []*MediaRow
-		finds      map[string]*FindsRow
-	}
-	rm = make(map[int64]*leftMoment)
+	var mdMap, fMap map[string]bool
+	rm := make(map[int64]*Moment)
+
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
 			return
 		}
-		m.createDate, err = dba.ParseDateTime2(createDate)
-		if err != nil {
-			Error.Println(err)
-			return
-		}
-		f.findDate, err = dba.ParseDateTime2(findDate)
-		if err != nil {
+		m.createDate = mc.parseDatetime2(createDate)
+		f.findDate = mc.parseDatetime2(findDate)
+		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		r := new(leftMoment)
 		if r, ok := rm[m.momentID]; !ok {
-			r = &leftMoment{
+			r = &Moment{
 				momentID:   m.momentID,
 				userID:     m.userID,
 				public:     m.public,
 				hidden:     m.hidden,
-				latitude:   m.latitude,
-				longitude:  m.longitude,
+				Location:   Location{latitude: m.latitude, longitude: m.longitude},
 				createDate: m.createDate,
 				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
-				finds:      map[string]*FindsRow{&FindsRow{userID: f.userID, findDate: f.findDate}},
+				finds:      []*FindsRow{&FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate}},
 			}
+			rm[m.momentID] = r
+
+			mdMap = make(map[string]bool)
+			fMap = make(map[string]bool)
+
+			mdMap[md.dir] = true
+			fMap[f.userID] = true
+
 		} else {
-			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
-			if _, ok = r.finds[f.userID]; !ok {
-				r.finds[f.userID] = &FindsRow{userID: f.userID, findDate: f.findDate}
+			if _, ok = mdMap[md.dir]; !ok {
+				r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
+				mdMap[md.dir] = true
+			}
+
+			if _, ok = fMap[f.userID]; !ok {
+				r.finds = append(r.finds, &FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate})
+				fMap[f.userID] = true
 			}
 		}
+
+	}
+	if err = rows.Err(); err != nil {
+		Error.Println(err)
+		return
 	}
 	return
 }
 
-func foundResults(rows *sql.Rows) (rm map[uint64]*foundMoment, err error) {
+func (mc *MomentClient) selectFoundMoment(query sq.SelectBuilder) (rs []*Moment, err error) {
+	rows, err := query.RunWith(mc.proc.getdb()).Query()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	defer rows.Close()
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
@@ -1362,76 +1407,44 @@ func foundResults(rows *sql.Rows) (rm map[uint64]*foundMoment, err error) {
 		&findDate,
 	}
 
-	type foundMoment struct {
-		mID
-		uID
-		public bool
-		hidden bool
-		Location
-		createDate *time.Time
-		media      []*MediaRow
-		findDate   *time.Time
-	}
-	rm = make(map[uint64]*foundMoment)
+	rm := make(map[int64]*Moment)
 	for rows.Next() {
-		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-		m.createDate, err = dba.ParseDateTime2(createDate)
-		if err != nil {
-			Error.Println(err)
-			return
-		}
-		f.findDate, err = dba.ParseDateTime2(findDate)
-		if err != nil {
+		if err = rows.Scan(dest); err != nil {
 			Error.Println(err)
 			return
 		}
 
-		r := new(foundMoment)
+		m.createDate = mc.parseDatetime2(createDate)
+		f.findDate = mc.parseDatetime2(findDate)
+		if err = mc.Err(); err != nil {
+			Error.Println(err)
+			return
+		}
+
 		if r, ok := rm[m.momentID]; !ok {
-			r = foundMoment{
+			r = &Moment{
 				momentID:   m.momentID,
 				userID:     m.userID,
 				public:     m.public,
 				hidden:     m.hidden,
-				latitude:   m.latitude,
-				longitude:  m.longitude,
+				Location:   Location{latitude: m.latitude, longitude: m.longitude},
 				createDate: m.createDate,
 				media: []*MediaRow{
 					&MediaRow{message: md.message, mType: md.mType, dir: md.dir},
 				},
-				findDate: f.findDate,
+				finds: []*FindsRow{
+					&FindsRow{findDate: f.findDate},
+				},
 			}
 			rm[m.momentID] = r
 		} else {
 			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
 		}
-	}
-	return
 
-}
-
-func lostResults(rows *sql.Rows) (rs []*lostMoment, err error) {
-	m := new(MomentsRow)
-	dest := []interface{}{
-		&m.momentID,
-		&m.latitude,
-		&m.longitude,
 	}
-
-	type lostMoment struct {
-		mID
-		Location
-	}
-	rm = make([]*lostMoment, 0)
-	for rows.Next() {
-		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-		rm = append(rm, &lostMoment{momentID: m.momentID, latitude: m.latitude, longitude: m.longitude})
+	if err = rows.Err(); err != nil {
+		Error.Println(err)
+		return
 	}
 	return
 }
