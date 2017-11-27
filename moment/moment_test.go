@@ -2,9 +2,11 @@ package moment
 
 import (
 	// "errors"
+	"database/sql"
 	"github.com/stretchr/testify/assert"
 	// "math/rand"
-	//"gopkg.in/DATA-DOG/go-sqlmock.v1"
+	"fmt"
+	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	"os"
 	"strings"
 	"testing"
@@ -12,8 +14,10 @@ import (
 )
 
 const (
-	TestUser      string = "user00"
-	TestEmptyUser string = ""
+	tUser      string = "user00"
+	tUser2     string = "user02"
+	tUser3     string = "user03"
+	tEmptyUser string = ""
 
 	lat  float32 = 0.00
 	long float32 = 0.00
@@ -25,6 +29,11 @@ func TestMain(m *testing.M) {
 	call := m.Run()
 
 	os.Exit(call)
+}
+
+func TestMomentDB(t *testing.T) {
+	db := MomentDB()
+	assert.IsType(t, new(sql.DB), db)
 }
 
 func TestCheckTime(t *testing.T) {
@@ -51,7 +60,8 @@ func TestCheckMomentID(t *testing.T) {
 	}
 	tests := []test{
 		test{1, nil},
-		test{0, ErrorMomentID},
+		test{0, nil},
+		test{-1, ErrorMomentID},
 		test{100, nil},
 		test{1000000, nil},
 	}
@@ -88,8 +98,8 @@ func TestCheckUserID(t *testing.T) {
 		expected error
 	}
 	tests := []test{
-		test{TestUser, nil},
-		test{TestEmptyUser, ErrorUserIDShort},
+		test{tUser, nil},
+		test{tEmptyUser, ErrorUserIDShort},
 		test{"user", ErrorUserIDShort},
 		test{strings.Repeat("c", maxUserChars), nil},
 		test{strings.Repeat("c", maxUserChars+1), ErrorUserIDLong},
@@ -125,7 +135,7 @@ func TestNewLocation(t *testing.T) {
 	}
 }
 
-func TestNewMedia(t *testing.T) {
+func TestNewMediaRow(t *testing.T) {
 	type test struct {
 		momentID int64
 		message  string
@@ -149,7 +159,7 @@ func TestNewMedia(t *testing.T) {
 	}
 }
 
-func TestNewFind(t *testing.T) {
+func TestNewFindsRow(t *testing.T) {
 	type test struct {
 		momentID int64
 		userID   string
@@ -159,10 +169,10 @@ func TestNewFind(t *testing.T) {
 	}
 	fd := time.Now().UTC()
 	tests := []test{
-		test{1, TestUser, true, &fd, nil},
-		test{1, TestUser, true, &time.Time{}, ErrorFoundEmptyFindDate},
-		test{1, TestUser, false, &time.Time{}, nil},
-		test{1, TestUser, false, &fd, ErrorNotFoundFindDateExists},
+		test{1, tUser, true, &fd, nil},
+		test{1, tUser, true, &time.Time{}, ErrorFoundEmptyFindDate},
+		test{1, tUser, false, &time.Time{}, nil},
+		test{1, tUser, false, &fd, ErrorNotFoundFindDateExists},
 	}
 
 	for _, v := range tests {
@@ -172,7 +182,7 @@ func TestNewFind(t *testing.T) {
 	}
 }
 
-func TestNewShare(t *testing.T) {
+func TestNewSharesRow(t *testing.T) {
 	type test struct {
 		momentID    int64
 		userID      string
@@ -181,10 +191,10 @@ func TestNewShare(t *testing.T) {
 		expected    error
 	}
 	tests := []test{
-		test{1, TestUser, false, "user_02", nil},
-		test{1, TestUser, true, "user_02", ErrorAllRecipientExists},
-		test{1, TestUser, true, "", nil},
-		test{1, TestUser, false, "", ErrorNotAllRecipientDNE},
+		test{1, tUser, false, "user_02", nil},
+		test{1, tUser, true, "user_02", ErrorAllRecipientExists},
+		test{1, tUser, true, "", nil},
+		test{1, tUser, false, "", ErrorNotAllRecipientDNE},
 	}
 
 	for _, v := range tests {
@@ -193,7 +203,8 @@ func TestNewShare(t *testing.T) {
 		assert.Exactly(t, v.expected, mc.Err())
 	}
 }
-func TestNewMoment(t *testing.T) {
+
+func TestNewMomentsRow(t *testing.T) {
 	type test struct {
 		location   *Location
 		userID     string
@@ -207,18 +218,228 @@ func TestNewMoment(t *testing.T) {
 	lo := mc.NewLocation(lat, long)
 	cd := time.Now().UTC()
 	tests := []test{
-		test{lo, TestUser, true, false, &cd, nil},
-		test{nil, TestUser, true, false, &cd, ErrorLocationIsNil},
-		test{lo, TestUser, true, false, &cd, nil},
-		test{lo, TestUser, false, false, &cd, nil},
-		test{lo, TestUser, false, true, &cd, ErrorPrivateHiddenMoment},
+		test{lo, tUser, true, false, &cd, nil},
+		test{nil, tUser, true, false, &cd, ErrorLocationIsNil},
+		test{lo, tUser, true, false, &cd, nil},
+		test{lo, tUser, false, false, &cd, nil},
+		test{lo, tUser, false, true, &cd, ErrorPrivateHiddenMoment},
 	}
 
 	for _, v := range tests {
-		mc = new(MomentClient)
+		mc := new(MomentClient)
 		_ = mc.NewMomentsRow(v.location, v.userID, v.public, v.hidden, v.createDate)
 		assert.Exactly(t, v.expected, mc.Err())
 	}
+}
+
+var (
+	MomentsRowRegexpStr = fmt.Sprintf(`^INSERT INTO \%s\.\%s \(\%s,\%s,\%s,\%s,\%s,\%s\) VALUES \(\?,\?,\?,\?,\?,\?\)$`,
+		momentSchema,
+		moments,
+		userID,
+		latStr,
+		longStr,
+		public,
+		hidden,
+		createDate)
+
+	FindsRowRegexpStr = fmt.Sprintf(`^INSERT INTO \%s\.\%s \(\%s,\%s,\%s,\%s\) VALUES (\(\?,\?,\?,\?\)(,|$))+`,
+		momentSchema,
+		finds,
+		momentID,
+		userID,
+		found,
+		findDate)
+
+	SharesRowRegexpStr = fmt.Sprintf(`INSERT INTO \%s\.\%s \(\%s,\%s,\%s,\%s\) VALUES \(\?,\?,\?,\?\)$`,
+		momentSchema,
+		shares,
+		momentID,
+		userID,
+		all,
+		recipientID)
+
+	MediaRowRegexpStr = fmt.Sprintf(`^INSERT INTO \%s\.\%s \(\%s,\%s,\%s,\%s\) VALUES \(\?,\?,\?,\?\)$`,
+		momentSchema,
+		media,
+		momentID,
+		message,
+		mtype,
+		dir)
+)
+
+func TestFindPublic(t *testing.T) {
+
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		assert.Nil(t, err)
+
+		mc := new(MomentClient)
+		f := mc.NewFindsRow(1, tUser, false, &time.Time{})
+		_, err = mc.FindPublic(db, f)
+		assert.Equal(t, ErrorFieldInvalid, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+
+		mc := new(MomentClient)
+		dt := time.Now().UTC()
+		f := mc.NewFindsRow(1, tUser, true, &dt)
+
+		mock.ExpectExec(FindsRowRegexpStr).
+			WithArgs(f.momentID, f.userID, f.found, f.findDate).
+			WillReturnResult(sqlmock.NewResult(f.momentID, 1))
+
+		cnt, err := mc.FindPublic(db, f)
+		assert.Nil(t, err)
+		assert.Equal(t, int64(1), cnt)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+
+}
+
+func TestFindPrivate(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		assert.Nil(t, err)
+
+		mc := new(MomentClient)
+		f := mc.NewFindsRow(1, tUser, false, &time.Time{})
+		err = mc.FindPrivate(db, f)
+		assert.Equal(t, ErrorFieldInvalid, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+
+		dt := time.Now().UTC()
+		mc := new(MomentClient)
+		f := mc.NewFindsRow(1, tUser, true, &dt)
+
+		s := fmt.Sprintf(`^UPDATE \%s\.\%s SET \%s = \?, \%s = \? WHERE \%s = \? AND \%s = \?$`,
+			momentSchema,
+			finds,
+			found,
+			findDate,
+			momentID,
+			userID)
+		mock.ExpectExec(s).
+			WithArgs(f.found, f.findDate, f.momentID, f.userID).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		err = mc.FindPrivate(db, f)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestCreatePrivate(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		assert.Nil(t, err)
+
+		mc := new(MomentClient)
+		err = mc.CreatePrivate(db, nil, nil, nil)
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		assert.Nil(t, err)
+
+		mock.ExpectBegin()
+
+		dt := time.Now().UTC()
+		mock.ExpectExec(MomentsRowRegexpStr).
+			WithArgs(tUser, lat, long, false, false, &dt).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+
+		mock.ExpectExec(MediaRowRegexpStr).
+			WithArgs(1, "Helloworld.", DNE, "").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		mock.ExpectExec(FindsRowRegexpStr).
+			WithArgs(1, tUser2, false, &time.Time{}, 1, tUser3, false, &time.Time{}).
+			WillReturnResult(sqlmock.NewResult(0, 2))
+
+		mock.ExpectCommit()
+
+		mc := new(MomentClient)
+		m := mc.NewMomentsRow(mc.NewLocation(lat, long), tUser, false, false, &dt)
+		md := mc.NewMediaRow(0, "Helloworld.", DNE, "")
+		f1 := mc.NewFindsRow(0, tUser2, false, &time.Time{})
+		f2 := mc.NewFindsRow(0, tUser3, false, &time.Time{})
+		assert.Nil(t, mc.Err())
+
+		err = mc.CreatePrivate(db, m, []*MediaRow{md}, []*FindsRow{f1, f2})
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestCreatePublic(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		err = mc.CreatePublic(db, nil, nil)
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		dt := time.Now().UTC()
+
+		mock.ExpectBegin()
+
+		mock.ExpectExec(MomentsRowRegexpStr).
+			WithArgs(tUser, lat, long, false, false, &dt).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+
+		mock.ExpectExec(MediaRowRegexpStr).
+			WithArgs(1, "Helloworld.", DNE, "").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		mock.ExpectCommit()
+
+		mc := new(MomentClient)
+		m := mc.NewMomentsRow(mc.NewLocation(lat, long), tUser, false, false, &dt)
+		md := mc.NewMediaRow(0, "Helloworld.", DNE, "")
+		assert.Nil(t, mc.Err())
+
+		err = mc.CreatePublic(db, m, []*MediaRow{md})
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestShare(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.Share(db, nil)
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		mock.ExpectExec(SharesRowRegexpStr).
+			WithArgs(1, tUser, true, tEmptyUser).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		s := mc.NewSharesRow(1, tUser, true, tEmptyUser)
+		cnt, err := mc.Share(db, []*SharesRow{s})
+		assert.Nil(t, err)
+		assert.Equal(t, int64(1), cnt)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
 }
 
 //const (

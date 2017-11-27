@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
+	_ "github.com/minus5/gofreetds"
 	"log"
 	"os"
 	"strconv"
@@ -79,9 +80,19 @@ var (
 func MomentDB() *sql.DB {
 	db, err := sql.Open(driver, connStr)
 	if err != nil {
-		Error.Fatal(err)
+		panic(err)
 	}
 	return db
+}
+
+type DbRunner interface {
+	Exec(string, ...interface{}) (sql.Result, error)
+	Query(string, ...interface{}) (*sql.Rows, error)
+}
+
+type DbRunnerTrans interface {
+	DbRunner
+	Begin() (*sql.Tx, error)
 }
 
 type MomentClient struct {
@@ -93,7 +104,7 @@ func (mc *MomentClient) Err() error {
 }
 
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
-func (mc *MomentClient) FindPublic(db sq.BaseRunner, f *FindsRow) (cnt int64, err error) {
+func (mc *MomentClient) FindPublic(db DbRunner, f *FindsRow) (cnt int64, err error) {
 	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
@@ -110,7 +121,7 @@ func (mc *MomentClient) FindPublic(db sq.BaseRunner, f *FindsRow) (cnt int64, er
 }
 
 // FindPrivate updates a FindsRow in the [Moment-Db].[moment].[Finds] by setting Found=true.
-func (mc *MomentClient) FindPrivate(db sq.BaseRunner, f *FindsRow) (err error) {
+func (mc *MomentClient) FindPrivate(db DbRunner, f *FindsRow) (err error) {
 	if err = f.isFound(); err != nil {
 		Error.Println(err)
 		return
@@ -124,7 +135,7 @@ func (mc *MomentClient) FindPrivate(db sq.BaseRunner, f *FindsRow) (err error) {
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (mc *MomentClient) Share(db sq.BaseRunner, ss []*SharesRow) (cnt int64, err error) {
+func (mc *MomentClient) Share(db DbRunner, ss []*SharesRow) (cnt int64, err error) {
 	if len(ss) == 0 {
 		Error.Println(ErrorParameterEmpty)
 		err = ErrorParameterEmpty
@@ -141,15 +152,30 @@ func (mc *MomentClient) Share(db sq.BaseRunner, ss []*SharesRow) (cnt int64, err
 var ErrorMediaPointerNil = errors.New("md *Media is nil.")
 
 // CreatePublic creates a row in [Moment-Db].[moment].[Moments] where Public=true.
-func (mc *MomentClient) CreatePublic(db sq.BaseRunner, m *MomentsRow, ms []*MediaRow) (err error) {
+func (mc *MomentClient) CreatePublic(db DbRunnerTrans, m *MomentsRow, ms []*MediaRow) (err error) {
 	if len(ms) == 0 || m == nil {
 		Error.Println(ErrorParameterEmpty)
 		return ErrorParameterEmpty
 	}
 
-	var mID int64
-	if mID, err = insert(db, m); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
 		Error.Println(err)
+		return
+	}
+	defer func() {
+		if err != nil {
+			if txerr := tx.Rollback(); txerr != nil {
+				Error.Println(txerr)
+			}
+			Error.Println(err)
+			return
+		}
+		tx.Commit()
+	}()
+
+	var mID int64
+	if mID, err = insert(tx, m); err != nil {
 		return
 	}
 	m.momentID = mID
@@ -157,12 +183,10 @@ func (mc *MomentClient) CreatePublic(db sq.BaseRunner, m *MomentsRow, ms []*Medi
 	for _, mr := range ms {
 		mr.setMomentID(m.momentID)
 		if err = mr.err; err != nil {
-			Error.Println(err)
 			return
 		}
 	}
-	if _, err = insert(db, ms); err != nil {
-		Error.Println(err)
+	if _, err = insert(tx, ms); err != nil {
 		return
 	}
 
@@ -173,13 +197,29 @@ var ErrorFindsPointerNil = errors.New("finds *Finds pointer is empty.")
 
 // CreatePrivate creates a MomentsRow in [Moment-Db].[moment].[Moments] where Public=true
 // and creates Finds in [Moment-Db].[moment].[Finds].
-func (mc *MomentClient) CreatePrivate(db sq.BaseRunner, m *MomentsRow, ms []*MediaRow, fs []*FindsRow) (err error) {
+func (mc *MomentClient) CreatePrivate(db DbRunnerTrans, m *MomentsRow, ms []*MediaRow, fs []*FindsRow) (err error) {
 	if m == nil || len(ms) == 0 || len(fs) == 0 {
 		Error.Println(ErrorParameterEmpty)
 		return ErrorParameterEmpty
 	}
 
-	mID, err := insert(db, m)
+	tx, err := db.Begin()
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	defer func() {
+		if err != nil {
+			if txerr := tx.Rollback(); txerr != nil {
+				Error.Println(txerr)
+			}
+			Error.Println(err)
+			return
+		}
+		tx.Commit()
+	}()
+
+	mID, err := insert(tx, m)
 	if err != nil {
 		Error.Println(err)
 		return
@@ -202,11 +242,11 @@ func (mc *MomentClient) CreatePrivate(db sq.BaseRunner, m *MomentsRow, ms []*Med
 		}
 	}
 
-	if _, err = insert(db, ms); err != nil {
+	if _, err = insert(tx, ms); err != nil {
 		Error.Println(err)
 		return
 	}
-	if _, err = insert(db, fs); err != nil {
+	if _, err = insert(tx, fs); err != nil {
 		Error.Println(err)
 		return
 	}
@@ -214,7 +254,7 @@ func (mc *MomentClient) CreatePrivate(db sq.BaseRunner, m *MomentsRow, ms []*Med
 	return
 }
 
-func insert(db sq.BaseRunner, i interface{}) (resVal int64, err error) {
+func insert(db DbRunner, i interface{}) (resVal int64, err error) {
 	var insert sq.InsertBuilder
 	switch v := i.(type) {
 	case []*FindsRow:
@@ -241,8 +281,8 @@ func insert(db sq.BaseRunner, i interface{}) (resVal int64, err error) {
 	case *MomentsRow:
 		insert = sq.
 			Insert(momentSchema+"."+moments).
-			Columns(iD, userID, latStr, longStr, public, hidden, createDate).
-			Values(v.momentID, v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
+			Columns(userID, latStr, longStr, public, hidden, createDate).
+			Values(v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
 	default:
 		return resVal, ErrorTypeNotImplemented
 	}
@@ -266,13 +306,15 @@ func insert(db sq.BaseRunner, i interface{}) (resVal int64, err error) {
 	return
 }
 
-func update(db sq.BaseRunner, i interface{}) (err error) {
+func update(db DbRunner, i interface{}) (err error) {
 	var query sq.UpdateBuilder
 	switch v := i.(type) {
 	case *FindsRow:
-		sM := map[string]interface{}{found: v.found, findDate: v.findDate}
-		wM := map[string]interface{}{momentID: v.momentID, userID: v.userID}
-		query = query.Table(momentSchema + "." + finds).SetMap(sM).Where(wM)
+		query = sq.Update(momentSchema+"."+finds).
+			Set(found, v.found).
+			Set(findDate, v.findDate).
+			Where(sq.Eq{momentID: v.momentID}).
+			Where(sq.Eq{userID: v.userID})
 	default:
 		return ErrorTypeNotImplemented
 	}
@@ -737,7 +779,7 @@ var ErrorMomentID = errors.New("*id must be >= 1.")
 
 // checkMomentID ensures that id is greater 0.
 func checkMomentID(id int64) (err error) {
-	if id < 1 {
+	if id < 0 {
 		return ErrorMomentID
 	}
 	return
