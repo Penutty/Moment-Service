@@ -442,6 +442,82 @@ func TestShare(t *testing.T) {
 	})
 }
 
+func TestLocationShared(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.LocationShared(db, nil, "")
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + `, 
+		` + mediaAlias + `\.\` + message + `, 
+		` + mediaAlias + `\.\` + mtype + `, 
+		` + mediaAlias + `\.\` + dir + `, 
+		` + momentsAlias + `\.\` + createDate + `, 
+		` + momentsAlias + `\.\` + userID + `, 
+		` + momentsAlias + `\.\` + public + `, 
+		` + momentsAlias + `\.\` + hidden + ` 
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + media + ` ` + mediaAlias + `
+		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + shares + ` ` + sharesAlias + `
+		  ON ` + sharesAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + momentsAlias + `\.\` + latStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
+			  AND \(` + sharesAlias + `\.\` + recipientID + ` = \? OR ` + sharesAlias + `\.\` + all + ` = 1\)$`)
+
+		dt := time.Now().UTC()
+		rows := sqlmock.
+			NewRows([]string{
+				iD,
+				latStr,
+				longStr,
+				message,
+				mtype,
+				dir,
+				createDate,
+				userID,
+				public,
+				hidden}).
+			AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false)
+
+		mock.ExpectQuery(s).WithArgs(lat-1, lat+1, long-1, long+1, tUser).WillReturnRows(rows)
+
+		_, err := mc.LocationShared(db, mc.NewLocation(lat, long), tUser)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestselectMoments(t *testing.T) {
+	dt := time.Now().UTC()
+	rows := sqlmock.
+		NewRows([]string{
+			iD,
+			latStr,
+			longStr,
+			message,
+			mtype,
+			dir,
+			createDate,
+			userID,
+			public,
+			hidden}).
+		AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false).
+		AddRow(2, 0.00, 0.00, "Hi how are you?", DNE, "", &dt, tUser, false, false)
+
+}
+
 //const (
 //	single int = 1
 //	start  int = 1

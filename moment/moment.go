@@ -373,7 +373,7 @@ func (m MomentsRow) String() string {
 		"Location: %v\n"+
 		"public: %v\n"+
 		"hidden: %v\n"+
-		"createDate: %v\n",
+		"createDate: %v",
 		m.momentID,
 		m.userID,
 		m.Location,
@@ -466,7 +466,7 @@ type MediaRow struct {
 
 // String returns the string representation of a MediaRow instance.
 func (m MediaRow) String() string {
-	return fmt.Sprintf("momentID: %v\nmType: %v\nmessage: %v\ndir: %v\n", m.momentID, m.mType, m.message, m.dir)
+	return fmt.Sprintf("momentID: %v, mType: %v, message: \"%v\", dir: \"%v\"", m.momentID, m.mType, m.message, m.dir)
 }
 
 // setMediaType ensures that t is a value between minMediaType and maxMediaType.
@@ -552,10 +552,7 @@ type FindsRow struct {
 
 // String returns the string representation of FindsRow
 func (f FindsRow) String() string {
-	return fmt.Sprintf("momentID: %v\n"+
-		"userID:   %v\n"+
-		"found: 	  %v\n"+
-		"findDate: %v\n",
+	return fmt.Sprintf("momentID: %v, userID: %v, found: %v, findDate: %v",
 		f.momentID,
 		f.userID,
 		f.found,
@@ -643,11 +640,7 @@ type SharesRow struct {
 
 // String returns a string representation of a SharesRow instance.
 func (s SharesRow) String() string {
-
-	return fmt.Sprintf("momentID: %v\n"+
-		"userID: %v\n"+
-		"all: %v\n"+
-		"recipientID: %v\n",
+	return fmt.Sprintf("momentID: %v, userID: %v, all: %v, recipientID: %v",
 		s.momentID,
 		s.userID,
 		s.all,
@@ -855,6 +848,11 @@ const (
 	media   = "[Media]"
 	shares  = "[Shares]"
 
+	schMoments = momentSchema + "." + moments
+	schFinds   = momentSchema + "." + finds
+	schMedia   = momentSchema + "." + media
+	schShares  = momentSchema + "." + shares
+
 	iD         = "[ID]"
 	momentID   = "[MomentID]"
 	userID     = "[UserID]"
@@ -864,162 +862,183 @@ const (
 	hidden     = "[Hidden]"
 	createDate = "[CreateDate]"
 
+	miD         = momentsAlias + "." + iD
+	mUserID     = momentsAlias + "." + userID
+	mLat        = momentsAlias + "." + latStr
+	mLong       = momentsAlias + "." + longStr
+	mPublic     = momentsAlias + "." + public
+	mHidden     = momentsAlias + "." + hidden
+	mCreateDate = momentsAlias + "." + createDate
+
 	findDate = "[FindDate]"
 	found    = "[Found]"
+
+	fMomentID = findsAlias + "." + momentID
+	fFindDate = findsAlias + "." + findDate
+	fFound    = findsAlias + "." + found
 
 	recipientID = "[RecipientID]"
 	all         = "[All]"
 
+	sMomentID    = sharesAlias + "." + momentID
+	sRecipientID = sharesAlias + "." + recipientID
+	sAll         = sharesAlias + "." + all
+
 	message = "[Message]"
 	mtype   = "[Type]"
 	dir     = "[Dir]"
+
+	mdMomentID = mediaAlias + "." + momentID
+	mdMessage  = mediaAlias + "." + message
+	mdType     = mediaAlias + "." + mtype
+	mdDir      = mediaAlias + "." + dir
 )
 
-var (
-	mLostColumns = []string{
-		momentsAlias + "." + iD,
-		momentsAlias + "." + latStr,
-		momentsAlias + "." + longStr,
-	}
-	mTypeColumns = []string{
-		momentsAlias + "." + public,
-		momentsAlias + "." + hidden,
-	}
-	mUserID = []string{
-		momentsAlias + "." + userID,
-	}
-	mCreateDate = []string{
-		momentsAlias + "." + createDate,
-	}
+//var (
+//	mLostColumns = []string{
+//		momentsAlias + "." + iD,
+//		momentsAlias + "." + latStr,
+//		momentsAlias + "." + longStr,
+//	}
+//	mTypeColumns = []string{
+//		momentsAlias + "." + public,
+//		momentsAlias + "." + hidden,
+//	}
+//	mUserID = []string{
+//		momentsAlias + "." + userID,
+//	}
+//	mCreateDate = []string{
+//		momentsAlias + "." + createDate,
+//	}
+//
+//	onMoments = momentsAlias + "." + iD
+//)
 
-	onMoments = momentsAlias + "." + iD
-)
-
-func mLocationBetween(l *Location) map[string]interface{} {
-	return map[string]interface{}{
-		momentsAlias + "." + latStr + " BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
-		momentsAlias + "." + longStr + " BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
-	}
-}
-
-func mPublicEquals(b bool) map[string]interface{} {
-	return map[string]interface{}{
-		momentsAlias + "." + public: b,
-	}
-}
-
-func mHiddenEquals(b bool) map[string]interface{} {
-	return map[string]interface{}{
-		momentsAlias + "." + hidden: b,
-	}
-}
-
-func mUserIDEquals(u string) map[string]interface{} {
-	return map[string]interface{}{
-		momentsAlias + "." + userID: u,
-	}
-}
-
-var (
-	mdColumns = []string{
-		mediaAlias + "." + message,
-		mediaAlias + "." + mtype,
-		mediaAlias + "." + dir,
-	}
-
-	fUserID = []string{
-		findsAlias + "." + userID,
-	}
-
-	fFindDate = []string{
-		findsAlias + "." + findDate,
-	}
-)
-
-func findsTbl(on string) string {
-	f := momentSchema + "." + finds + " " + findsAlias
-	if on != "" {
-		f += " ON " + findsAlias + "." + momentID + " = " + on
-	}
-	return f
-}
-
-func mediaTbl(on string) string {
-	md := momentSchema + "." + media + " " + mediaAlias
-	if on != "" {
-		md += " ON " + mediaAlias + "." + momentID + " = " + on
-	}
-	return md
-}
-
-func fFoundEquals(b bool) map[string]interface{} {
-	return map[string]interface{}{
-		findsAlias + "." + found: b,
-	}
-}
-
-func fUserIDEquals(u string) map[string]interface{} {
-	return map[string]interface{}{
-		findsAlias + "." + userID: u,
-	}
-}
-
-func sharesTbl(on string) string {
-	s := momentSchema + "." + shares + " " + sharesAlias
-	if on != "" {
-		s += " ON " + sharesAlias + "." + momentID + " = " + on
-	}
-	return s
-}
-
-func sRecipientEquals(me string) map[string]interface{} {
-	return map[string]interface{}{
-		"(" + sharesAlias + "." + recipientID + " = ? OR " + sharesAlias + "." + all + " = 1)": me,
-	}
-}
-
-func sUserIDEquals(you string) map[string]interface{} {
-	return map[string]interface{}{
-		sharesAlias + "." + userID: you,
-	}
-}
-
-func momentsQuery(mt momentsType) sq.SelectBuilder {
-	cSet := [][]string{
-		mLostColumns,
-		mdColumns,
-		mCreateDate,
-	}
-	if mt != Left {
-		cSet = append(cSet, mUserID)
-	}
-	if mt != Public {
-		cSet = append(cSet, mTypeColumns)
-	}
-
-	var columns []string
-	for _, c := range cSet {
-		columns = append(columns, c...)
-	}
-
-	query := sq.
-		Select().
-		Columns(columns...).
-		From(momentSchema + "." + moments + " " + momentsAlias).
-		Join(mediaTbl(onMoments))
-
-	return query
-}
-
-func lostQuery() sq.SelectBuilder {
-	query := sq.
-		Select().
-		Columns(mLostColumns...).
-		From(moments)
-
-	return query
-}
-
+//func mLocationBetween(l *Location) map[string]interface{} {
+//	return map[string]interface{}{
+//		momentsAlias + "." + latStr + " BETWEEN ? AND ?":  []interface{}{l.latitude - 1, l.latitude + 1},
+//		momentsAlias + "." + longStr + " BETWEEN ? AND ?": []interface{}{l.longitude - 1, l.longitude + 1},
+//	}
+//}
+//
+//func mPublicEquals(b bool) map[string]interface{} {
+//	return map[string]interface{}{
+//		momentsAlias + "." + public: b,
+//	}
+//}
+//
+//func mHiddenEquals(b bool) map[string]interface{} {
+//	return map[string]interface{}{
+//		momentsAlias + "." + hidden: b,
+//	}
+//}
+//
+//func mUserIDEquals(u string) map[string]interface{} {
+//	return map[string]interface{}{
+//		momentsAlias + "." + userID: u,
+//	}
+//}
+//
+//var (
+//	mdColumns = []string{
+//		mediaAlias + "." + message,
+//		mediaAlias + "." + mtype,
+//		mediaAlias + "." + dir,
+//	}
+//
+//	fUserID = []string{
+//		findsAlias + "." + userID,
+//	}
+//
+//	fFindDate = []string{
+//		findsAlias + "." + findDate,
+//	}
+//)
+//
+//func findsTbl(on string) string {
+//	f := momentSchema + "." + finds + " " + findsAlias
+//	if on != "" {
+//		f += " ON " + findsAlias + "." + momentID + " = " + on
+//	}
+//	return f
+//}
+//
+//func mediaTbl(on string) string {
+//	md := momentSchema + "." + media + " " + mediaAlias
+//	if on != "" {
+//		md += " ON " + mediaAlias + "." + momentID + " = " + on
+//	}
+//	return md
+//}
+//
+//func fFoundEquals(b bool) map[string]interface{} {
+//	return map[string]interface{}{
+//		findsAlias + "." + found: b,
+//	}
+//}
+//
+//func fUserIDEquals(u string) map[string]interface{} {
+//	return map[string]interface{}{
+//		findsAlias + "." + userID: u,
+//	}
+//}
+//
+//func sharesTbl(on string) string {
+//	s := momentSchema + "." + shares + " " + sharesAlias
+//	if on != "" {
+//		s += " ON " + sharesAlias + "." + momentID + " = " + on
+//	}
+//	return s
+//}
+//
+//func sRecipientEquals(me string) map[string]interface{} {
+//	return map[string]interface{}{
+//		"(" + sharesAlias + "." + recipientID + " = ? OR " + sharesAlias + "." + all + " = 1)": me,
+//	}
+//}
+//
+//func sUserIDEquals(you string) map[string]interface{} {
+//	return map[string]interface{}{
+//		sharesAlias + "." + userID: you,
+//	}
+//}
+//
+//func momentsQuery(mt momentsType) sq.SelectBuilder {
+//	cSet := [][]string{
+//		mLostColumns,
+//		mdColumns,
+//		mCreateDate,
+//	}
+//	if mt != Left {
+//		cSet = append(cSet, mUserID)
+//	}
+//	if mt != Public {
+//		cSet = append(cSet, mTypeColumns)
+//	}
+//
+//	var columns []string
+//	for _, c := range cSet {
+//		columns = append(columns, c...)
+//	}
+//
+//	query := sq.
+//		Select().
+//		Columns(columns...).
+//		From(momentSchema + "." + moments + " " + momentsAlias).
+//		Join(mediaTbl(onMoments))
+//
+//	return query
+//}
+//
+//func lostQuery() sq.SelectBuilder {
+//	query := sq.
+//		Select().
+//		Columns(mLostColumns...).
+//		From(moments)
+//
+//	return query
+//}
+//
 type Moment struct {
 	momentID int64
 	userID   string
@@ -1030,6 +1049,32 @@ type Moment struct {
 	media      []*MediaRow
 	finds      []*FindsRow
 	shares     []*SharesRow
+}
+
+func (m Moment) String() string {
+	s := fmt.Sprintf("\nmomentID: %v\nuserID: %s\npublic: %v\nhidden: %v\nLocation: %vcreateDate: %v\n",
+		m.momentID,
+		m.userID,
+		m.public,
+		m.hidden,
+		m.Location,
+		m.createDate)
+
+	s += "media:\n"
+	for i, md := range m.media {
+		s += fmt.Sprintf("\t%v: %v\n", i, md)
+	}
+
+	s += "finds:\n"
+	for i, f := range m.finds {
+		s += fmt.Sprintf("\t%v: %v\n", i, f)
+	}
+
+	s += "shares:\n"
+	for i, sh := range m.shares {
+		s += fmt.Sprintf("\t%v: %v\n", i, sh)
+	}
+	return s
 }
 
 type Client interface {
@@ -1050,62 +1095,74 @@ func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string)
 		return nil, ErrorParameterEmpty
 	}
 
-	query := momentsQuery(Shared)
-
-	query = query.
-		Join(sharesTbl(onMoments)).
-		Where(mLocationBetween(l)).
-		Where(sRecipientEquals(me))
+	query := sq.
+		Select(
+			miD,
+			mLat,
+			mLong,
+			mdMessage,
+			mdType,
+			mdDir,
+			mCreateDate,
+			mUserID,
+			mPublic,
+			mHidden).
+		From(schMoments+" "+momentsAlias).
+		Join(schMedia+" "+mediaAlias+" ON "+mdMomentID+" = "+miD).
+		Join(schShares+" "+sharesAlias+" ON "+sMomentID+" = "+miD).
+		Where(mLat+" BETWEEN ? AND ?", l.latitude-1, l.latitude+1).
+		Where(mLong+" BETWEEN ? AND ?", l.longitude-1, l.longitude+1).
+		Where("("+sRecipientID+" = ? OR "+sAll+" = 1)", me)
 
 	return mc.selectMoments(db, query)
 }
 
-func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) ([]*Moment, error) {
-	if l == nil {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := momentsQuery(Public)
-
-	query = query.Where(mLocationBetween(l)).
-		Where(mPublicEquals(true)).
-		Where(mHiddenEquals(false))
-
-	return mc.selectPublicMoments(db, query)
-}
-
-func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) ([]*Moment, error) {
-	if l == nil {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := lostQuery()
-
-	query = query.Where(mLocationBetween(l)).
-		Where(mPublicEquals(true)).
-		Where(mHiddenEquals(true))
-
-	return mc.selectLostMoments(db, query)
-}
-
-func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
-	if l == nil || me == "" {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := lostQuery()
-
-	query = query.
-		Join(findsTbl(onMoments)).
-		Where(mLocationBetween(l)).
-		Where(mPublicEquals(false)).
-		Where(fUserIDEquals(me))
-
-	return mc.selectLostMoments(db, query)
-}
+//func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) ([]*Moment, error) {
+//	if l == nil {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := momentsQuery(Public)
+//
+//	query = query.Where(mLocationBetween(l)).
+//		Where(mPublicEquals(true)).
+//		Where(mHiddenEquals(false))
+//
+//	return mc.selectPublicMoments(db, query)
+//}
+//
+//func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) ([]*Moment, error) {
+//	if l == nil {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := lostQuery()
+//
+//	query = query.Where(mLocationBetween(l)).
+//		Where(mPublicEquals(true)).
+//		Where(mHiddenEquals(true))
+//
+//	return mc.selectLostMoments(db, query)
+//}
+//
+//func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
+//	if l == nil || me == "" {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := lostQuery()
+//
+//	query = query.
+//		Join(findsTbl(onMoments)).
+//		Where(mLocationBetween(l)).
+//		Where(mPublicEquals(false)).
+//		Where(fUserIDEquals(me))
+//
+//	return mc.selectLostMoments(db, query)
+//}
 
 type UserSelector interface {
 	UserShared(sq.BaseRunner, string, string) ([]*Moment, error)
@@ -1113,51 +1170,52 @@ type UserSelector interface {
 	UserFound(sq.BaseRunner, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) UserShared(db sq.BaseRunner, me string, u string) ([]*Moment, error) {
-	if me == "" || u == "" {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := momentsQuery(Shared)
-	query = query.
-		Join(sharesTbl(onMoments)).
-		Where(sUserIDEquals(u)).
-		Where(sRecipientEquals(me))
-
-	return mc.selectMoments(db, query)
-}
-func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (rs []*Moment, err error) {
-	if me == "" {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := momentsQuery(Left)
-	query = query.
-		Columns(append(fUserID, fFindDate...)...).
-		Join(findsTbl(onMoments)).
-		Where(mUserIDEquals(me))
-
-	return mc.selectLeftMoments(db, query)
-}
-
-func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) ([]*Moment, error) {
-	if me == "" {
-		Error.Println(ErrorParameterEmpty)
-		return nil, ErrorParameterEmpty
-	}
-
-	query := momentsQuery(Found)
-	query = query.
-		Columns(fFindDate...).
-		From(findsTbl(onMoments)).
-		Where(fUserIDEquals(me)).
-		Where(fFoundEquals(true))
-
-	return mc.selectFoundMoment(db, query)
-}
-
+//
+//func (mc *MomentClient) UserShared(db sq.BaseRunner, me string, u string) ([]*Moment, error) {
+//	if me == "" || u == "" {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := momentsQuery(Shared)
+//	query = query.
+//		Join(sharesTbl(onMoments)).
+//		Where(sUserIDEquals(u)).
+//		Where(sRecipientEquals(me))
+//
+//	return mc.selectMoments(db, query)
+//}
+//func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (rs []*Moment, err error) {
+//	if me == "" {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := momentsQuery(Left)
+//	query = query.
+//		Columns(append(fUserID, fFindDate...)...).
+//		Join(findsTbl(onMoments)).
+//		Where(mUserIDEquals(me))
+//
+//	return mc.selectLeftMoments(db, query)
+//}
+//
+//func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) ([]*Moment, error) {
+//	if me == "" {
+//		Error.Println(ErrorParameterEmpty)
+//		return nil, ErrorParameterEmpty
+//	}
+//
+//	query := momentsQuery(Found)
+//	query = query.
+//		Columns(fFindDate...).
+//		From(findsTbl(onMoments)).
+//		Where(fUserIDEquals(me)).
+//		Where(fFoundEquals(true))
+//
+//	return mc.selectFoundMoment(db, query)
+//}
+//
 func (mc *MomentClient) parseDatetime2(s string) *time.Time {
 	t, err := time.Parse(Datetime2, findDate)
 	if err != nil {
@@ -1168,6 +1226,7 @@ func (mc *MomentClient) parseDatetime2(s string) *time.Time {
 }
 
 func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
@@ -1177,29 +1236,23 @@ func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) 
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
-	var createDate string
+	//	var createDate string
 	dest := []interface{}{
-		&createDate,
-		&m.userID,
-		&m.public,
-		&m.hidden,
 		&m.momentID,
 		&m.latitude,
 		&m.longitude,
 		&md.message,
 		&md.mType,
 		&md.dir,
+		&m.createDate,
+		&m.userID,
+		&m.public,
+		&m.hidden,
 	}
 
 	rm := make(map[int64]*Moment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		m.createDate = mc.parseDatetime2(createDate)
-		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
@@ -1223,243 +1276,248 @@ func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) 
 		Error.Println(err)
 		return
 	}
+
+	for _, r := range rm {
+		rs = append(rs, r)
+	}
 	return
 
 }
 
-func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	m := new(MomentsRow)
-	md := new(MediaRow)
-	var createDate string
-	dest := []interface{}{
-		&createDate,
-		&m.userID,
-		&m.momentID,
-		&m.latitude,
-		&m.longitude,
-		&md.message,
-		&md.mType,
-		&md.dir,
-	}
-
-	rm := make(map[int64]*Moment)
-	for rows.Next() {
-		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		m.createDate = mc.parseDatetime2(createDate)
-		if err = mc.Err(); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		if r, ok := rm[m.momentID]; !ok {
-			r = &Moment{
-				momentID: m.momentID,
-				userID:   m.userID,
-				Location: Location{latitude: m.latitude, longitude: m.longitude},
-				media:    []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
-			}
-			rm[m.momentID] = r
-		} else {
-			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
-		}
-	}
-	if err = rows.Err(); err != nil {
-		Error.Println(err)
-		return
-	}
-	return
-}
-
-func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	m := new(MomentsRow)
-	dest := []interface{}{
-		&m.momentID,
-		&m.latitude,
-		&m.longitude,
-	}
-
-	rs = make([]*Moment, 0)
-	for rows.Next() {
-		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-		rs = append(rs,
-			&Moment{
-				momentID: m.momentID,
-				Location: Location{latitude: m.latitude, longitude: m.longitude},
-			})
-
-	}
-	if err = rows.Err(); err != nil {
-		Error.Println(err)
-		return
-	}
-	return
-}
-
-func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	m := new(MomentsRow)
-	md := new(MediaRow)
-	f := new(FindsRow)
-	var createDate, findDate string
-	dest := []interface{}{
-		&createDate,
-		&m.public,
-		&m.hidden,
-		&m.momentID,
-		&m.latitude,
-		&m.longitude,
-		&md.message,
-		&md.mType,
-		&md.dir,
-		&f.userID,
-		&findDate,
-	}
-
-	var mdMap, fMap map[string]bool
-	rm := make(map[int64]*Moment)
-
-	for rows.Next() {
-		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-		m.createDate = mc.parseDatetime2(createDate)
-		f.findDate = mc.parseDatetime2(findDate)
-		if err = mc.Err(); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		if r, ok := rm[m.momentID]; !ok {
-			r = &Moment{
-				momentID:   m.momentID,
-				userID:     m.userID,
-				public:     m.public,
-				hidden:     m.hidden,
-				Location:   Location{latitude: m.latitude, longitude: m.longitude},
-				createDate: m.createDate,
-				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
-				finds:      []*FindsRow{&FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate}},
-			}
-			rm[m.momentID] = r
-
-			mdMap = make(map[string]bool)
-			fMap = make(map[string]bool)
-
-			mdMap[md.dir] = true
-			fMap[f.userID] = true
-
-		} else {
-			if _, ok = mdMap[md.dir]; !ok {
-				r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
-				mdMap[md.dir] = true
-			}
-
-			if _, ok = fMap[f.userID]; !ok {
-				r.finds = append(r.finds, &FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate})
-				fMap[f.userID] = true
-			}
-		}
-
-	}
-	if err = rows.Err(); err != nil {
-		Error.Println(err)
-		return
-	}
-	return
-}
-
-func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
-	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		Error.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	m := new(MomentsRow)
-	md := new(MediaRow)
-	f := new(FindsRow)
-	var createDate, findDate string
-	dest := []interface{}{
-		&createDate,
-		&m.userID,
-		&m.public,
-		&m.hidden,
-		&m.momentID,
-		&m.latitude,
-		&m.longitude,
-		&md.message,
-		&md.mType,
-		&md.dir,
-		&findDate,
-	}
-
-	rm := make(map[int64]*Moment)
-	for rows.Next() {
-		if err = rows.Scan(dest); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		m.createDate = mc.parseDatetime2(createDate)
-		f.findDate = mc.parseDatetime2(findDate)
-		if err = mc.Err(); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		if r, ok := rm[m.momentID]; !ok {
-			r = &Moment{
-				momentID:   m.momentID,
-				userID:     m.userID,
-				public:     m.public,
-				hidden:     m.hidden,
-				Location:   Location{latitude: m.latitude, longitude: m.longitude},
-				createDate: m.createDate,
-				media: []*MediaRow{
-					&MediaRow{message: md.message, mType: md.mType, dir: md.dir},
-				},
-				finds: []*FindsRow{
-					&FindsRow{findDate: f.findDate},
-				},
-			}
-			rm[m.momentID] = r
-		} else {
-			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
-		}
-
-	}
-	if err = rows.Err(); err != nil {
-		Error.Println(err)
-		return
-	}
-	return
-}
+//
+//func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+//	rows, err := query.RunWith(db).Query()
+//	if err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	md := new(MediaRow)
+//	var createDate string
+//	dest := []interface{}{
+//		&createDate,
+//		&m.userID,
+//		&m.momentID,
+//		&m.latitude,
+//		&m.longitude,
+//		&md.message,
+//		&md.mType,
+//		&md.dir,
+//	}
+//
+//	rm := make(map[int64]*Moment)
+//	for rows.Next() {
+//		if err = rows.Scan(dest...); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//
+//		m.createDate = mc.parseDatetime2(createDate)
+//		if err = mc.Err(); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//
+//		if r, ok := rm[m.momentID]; !ok {
+//			r = &Moment{
+//				momentID: m.momentID,
+//				userID:   m.userID,
+//				Location: Location{latitude: m.latitude, longitude: m.longitude},
+//				media:    []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
+//			}
+//			rm[m.momentID] = r
+//		} else {
+//			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
+//		}
+//	}
+//	if err = rows.Err(); err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	return
+//}
+//
+//func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+//	rows, err := query.RunWith(db).Query()
+//	if err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	dest := []interface{}{
+//		&m.momentID,
+//		&m.latitude,
+//		&m.longitude,
+//	}
+//
+//	rs = make([]*Moment, 0)
+//	for rows.Next() {
+//		if err = rows.Scan(dest...); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//		rs = append(rs,
+//			&Moment{
+//				momentID: m.momentID,
+//				Location: Location{latitude: m.latitude, longitude: m.longitude},
+//			})
+//
+//	}
+//	if err = rows.Err(); err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	return
+//}
+//
+//func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+//	rows, err := query.RunWith(db).Query()
+//	if err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	md := new(MediaRow)
+//	f := new(FindsRow)
+//	var createDate, findDate string
+//	dest := []interface{}{
+//		&createDate,
+//		&m.public,
+//		&m.hidden,
+//		&m.momentID,
+//		&m.latitude,
+//		&m.longitude,
+//		&md.message,
+//		&md.mType,
+//		&md.dir,
+//		&f.userID,
+//		&findDate,
+//	}
+//
+//	var mdMap, fMap map[string]bool
+//	rm := make(map[int64]*Moment)
+//
+//	for rows.Next() {
+//		if err = rows.Scan(dest...); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//		m.createDate = mc.parseDatetime2(createDate)
+//		f.findDate = mc.parseDatetime2(findDate)
+//		if err = mc.Err(); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//
+//		if r, ok := rm[m.momentID]; !ok {
+//			r = &Moment{
+//				momentID:   m.momentID,
+//				userID:     m.userID,
+//				public:     m.public,
+//				hidden:     m.hidden,
+//				Location:   Location{latitude: m.latitude, longitude: m.longitude},
+//				createDate: m.createDate,
+//				media:      []*MediaRow{&MediaRow{message: md.message, mType: md.mType, dir: md.dir}},
+//				finds:      []*FindsRow{&FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate}},
+//			}
+//			rm[m.momentID] = r
+//
+//			mdMap = make(map[string]bool)
+//			fMap = make(map[string]bool)
+//
+//			mdMap[md.dir] = true
+//			fMap[f.userID] = true
+//
+//		} else {
+//			if _, ok = mdMap[md.dir]; !ok {
+//				r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
+//				mdMap[md.dir] = true
+//			}
+//
+//			if _, ok = fMap[f.userID]; !ok {
+//				r.finds = append(r.finds, &FindsRow{uID: uID{userID: f.userID}, findDate: f.findDate})
+//				fMap[f.userID] = true
+//			}
+//		}
+//
+//	}
+//	if err = rows.Err(); err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	return
+//}
+//
+//func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+//	rows, err := query.RunWith(db).Query()
+//	if err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	defer rows.Close()
+//
+//	m := new(MomentsRow)
+//	md := new(MediaRow)
+//	f := new(FindsRow)
+//	var createDate, findDate string
+//	dest := []interface{}{
+//		&createDate,
+//		&m.userID,
+//		&m.public,
+//		&m.hidden,
+//		&m.momentID,
+//		&m.latitude,
+//		&m.longitude,
+//		&md.message,
+//		&md.mType,
+//		&md.dir,
+//		&findDate,
+//	}
+//
+//	rm := make(map[int64]*Moment)
+//	for rows.Next() {
+//		if err = rows.Scan(dest); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//
+//		m.createDate = mc.parseDatetime2(createDate)
+//		f.findDate = mc.parseDatetime2(findDate)
+//		if err = mc.Err(); err != nil {
+//			Error.Println(err)
+//			return
+//		}
+//
+//		if r, ok := rm[m.momentID]; !ok {
+//			r = &Moment{
+//				momentID:   m.momentID,
+//				userID:     m.userID,
+//				public:     m.public,
+//				hidden:     m.hidden,
+//				Location:   Location{latitude: m.latitude, longitude: m.longitude},
+//				createDate: m.createDate,
+//				media: []*MediaRow{
+//					&MediaRow{message: md.message, mType: md.mType, dir: md.dir},
+//				},
+//				finds: []*FindsRow{
+//					&FindsRow{findDate: f.findDate},
+//				},
+//			}
+//			rm[m.momentID] = r
+//		} else {
+//			r.media = append(r.media, &MediaRow{message: md.message, mType: md.mType, dir: md.dir})
+//		}
+//
+//	}
+//	if err = rows.Err(); err != nil {
+//		Error.Println(err)
+//		return
+//	}
+//	return
+//}
