@@ -475,48 +475,274 @@ func TestLocationShared(t *testing.T) {
 			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
 			  AND \(` + sharesAlias + `\.\` + recipientID + ` = \? OR ` + sharesAlias + `\.\` + all + ` = 1\)$`)
 
-		dt := time.Now().UTC()
-		rows := sqlmock.
-			NewRows([]string{
-				iD,
-				latStr,
-				longStr,
-				message,
-				mtype,
-				dir,
-				createDate,
-				userID,
-				public,
-				hidden}).
-			AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false)
+		rows := sqlmock.NewRows([]string{"NoColumns"})
 
 		mock.ExpectQuery(s).WithArgs(lat-1, lat+1, long-1, long+1, tUser).WillReturnRows(rows)
 
-		_, err := mc.LocationShared(db, mc.NewLocation(lat, long), tUser)
+		_, err = mc.LocationShared(db, mc.NewLocation(lat, long), tUser)
 		assert.Nil(t, err)
 
 		assert.Nil(t, mock.ExpectationsWereMet())
 	})
 }
 
-func TestselectMoments(t *testing.T) {
-	dt := time.Now().UTC()
-	rows := sqlmock.
-		NewRows([]string{
-			iD,
-			latStr,
-			longStr,
-			message,
-			mtype,
-			dir,
-			createDate,
-			userID,
-			public,
-			hidden}).
-		AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false).
-		AddRow(2, 0.00, 0.00, "Hi how are you?", DNE, "", &dt, tUser, false, false)
+func TestLocationPublic(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.LocationPublic(db, nil)
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + `, 
+		` + mediaAlias + `\.\` + message + `, 
+		` + mediaAlias + `\.\` + mtype + `, 
+		` + mediaAlias + `\.\` + dir + `, 
+		` + momentsAlias + `\.\` + createDate + `, 
+		` + momentsAlias + `\.\` + userID + ` 
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + media + ` ` + mediaAlias + `
+		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + momentsAlias + `\.\` + latStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + public + ` = true 
+			  AND ` + momentsAlias + `\.\` + hidden + ` = false$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+
+		mock.ExpectQuery(s).WithArgs(lat-1, lat+1, long-1, long+1).WillReturnRows(rows)
+
+		_, err = mc.LocationPublic(db, mc.NewLocation(lat, long))
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestLocationHidden(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.LocationHidden(db, nil)
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + ` 
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		WHERE ` + momentsAlias + `\.\` + latStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + public + ` = true 
+			  AND ` + momentsAlias + `\.\` + hidden + ` = true$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+		mock.ExpectQuery(s).WithArgs(lat-1, lat+1, long-1, long+1).WillReturnRows(rows)
+
+		_, err = mc.LocationHidden(db, mc.NewLocation(lat, long))
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestLocationLost(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.LocationLost(db, nil, "")
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + ` 
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + finds + ` ` + findsAlias + `
+		  ON ` + findsAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + momentsAlias + `\.\` + latStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
+			  AND ` + momentsAlias + `\.\` + public + ` = false 
+			  AND ` + momentsAlias + `\.\` + hidden + ` = false 
+			  AND ` + findsAlias + `\.\` + userID + ` = \?$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+		mock.ExpectQuery(s).WithArgs(lat-1, lat+1, long-1, long+1, tUser).WillReturnRows(rows)
+
+		_, err = mc.LocationLost(db, mc.NewLocation(lat, long), tUser)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestUserShared(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.UserShared(db, "", "")
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + `, 
+		` + mediaAlias + `\.\` + message + `, 
+		` + mediaAlias + `\.\` + mtype + `, 
+		` + mediaAlias + `\.\` + dir + `, 
+		` + momentsAlias + `\.\` + createDate + `, 
+		` + momentsAlias + `\.\` + userID + `,
+		` + momentsAlias + `\.\` + public + `,
+		` + momentsAlias + `\.\` + hidden + `
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + media + ` ` + mediaAlias + `
+		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + shares + ` ` + sharesAlias + `
+		  ON ` + sharesAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + sharesAlias + `\.\` + userID + ` = \?
+			  AND \(` + sharesAlias + `\.\` + recipientID + ` = \? OR ` + sharesAlias + `\.\` + all + ` = true\)$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+		mock.ExpectQuery(s).WithArgs(tUser, tUser2).WillReturnRows(rows)
+
+		_, err = mc.UserShared(db, tUser, tUser2)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestUserLeft(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.UserLeft(db, "")
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + `, 
+		` + mediaAlias + `\.\` + message + `, 
+		` + mediaAlias + `\.\` + mtype + `, 
+		` + mediaAlias + `\.\` + dir + `, 
+		` + momentsAlias + `\.\` + createDate + `, 
+		` + momentsAlias + `\.\` + public + `,
+		` + momentsAlias + `\.\` + hidden + `,
+		` + findsAlias + `\.\` + userID + `,
+		` + findsAlias + `\.\` + findDate + `
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + media + ` ` + mediaAlias + `
+		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + finds + ` ` + findsAlias + `
+		  ON ` + findsAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + momentsAlias + `\.\` + userID + ` = \?$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+		mock.ExpectQuery(s).WithArgs(tUser).WillReturnRows(rows)
+
+		_, err = mc.UserLeft(db, tUser)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
 
 }
+
+func TestUserFound(t *testing.T) {
+	t.Run("Parameter Checks", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		mc := new(MomentClient)
+		_, err = mc.UserFound(db, "")
+		assert.Equal(t, ErrorParameterEmpty, err)
+	})
+
+	t.Run("1", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		mc := new(MomentClient)
+
+		s := fmt.Sprintf(`
+		^SELECT 
+		` + momentsAlias + `\.\` + iD + `, 
+		` + momentsAlias + `\.\` + latStr + `, 
+		` + momentsAlias + `\.\` + longStr + `, 
+		` + mediaAlias + `\.\` + message + `, 
+		` + mediaAlias + `\.\` + mtype + `, 
+		` + mediaAlias + `\.\` + dir + `, 
+		` + momentsAlias + `\.\` + createDate + `, 
+		` + momentsAlias + `\.\` + userID + `,
+		` + momentsAlias + `\.\` + public + `,
+		` + momentsAlias + `\.\` + hidden + `,
+		` + findsAlias + `\.\` + findDate + `
+		FROM \` + momentSchema + `\.\` + moments + ` ` + momentsAlias + `  
+		JOIN \` + momentSchema + `\.\` + media + ` ` + mediaAlias + `
+		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + finds + ` ` + findsAlias + `
+		  ON ` + findsAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		WHERE ` + findsAlias + `\.\` + userID + ` = \?
+			  AND ` + findsAlias + `\.\` + found + ` = true$`)
+
+		rows := sqlmock.NewRows([]string{"NoColumns"})
+		mock.ExpectQuery(s).WithArgs(tUser).WillReturnRows(rows)
+
+		_, err = mc.UserFound(db, tUser)
+		assert.Nil(t, err)
+
+		assert.Nil(t, mock.ExpectationsWereMet())
+	})
+
+}
+
+//func TestselectMoments(t *testing.T) {
+//	dt := time.Now().UTC()
+//	rows := sqlmock.
+//		NewRows([]string{
+//			iD,
+//			latStr,
+//			longStr,
+//			message,
+//			mtype,
+//			dir,
+//			createDate,
+//			userID,
+//			public,
+//			hidden}).
+//		AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false).
+//		AddRow(2, 0.00, 0.00, "Hi how are you?", DNE, "", &dt, tUser, false, false)
+//
+//}
 
 //const (
 //	single int = 1
