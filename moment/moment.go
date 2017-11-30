@@ -368,18 +368,7 @@ type MomentsRow struct {
 
 // String returns a string representation of a MomentsRow instance.
 func (m MomentsRow) String() string {
-	return fmt.Sprintf("id: %v\n"+
-		"userID: %v\n"+
-		"Location: %v\n"+
-		"public: %v\n"+
-		"hidden: %v\n"+
-		"createDate: %v",
-		m.momentID,
-		m.userID,
-		m.Location,
-		m.public,
-		m.hidden,
-		m.createDate)
+	return fmt.Sprintf("id: %v, userID: %v, Location: %v, public: %v, hidden: %v, creatDate: %v", m.momentID, m.userID, m.Location, m.public, m.hidden, m.createDate)
 }
 
 var ErrorLocationIsNil = errors.New("l *Location is nil")
@@ -705,7 +694,7 @@ type Location struct {
 
 // String returns the string representation of a Location instance.
 func (l Location) String() string {
-	return fmt.Sprintf("latitude: %v\nlongitude: %v\n", l.latitude, l.longitude)
+	return fmt.Sprintf("latitude: %v, longitude: %v", l.latitude, l.longitude)
 }
 
 // setLatitude ensures that the values of l is between minLat and maxLat.
@@ -909,7 +898,7 @@ type Moment struct {
 }
 
 func (m Moment) String() string {
-	s := fmt.Sprintf("\nmomentID: %v\nuserID: %s\npublic: %v\nhidden: %v\nLocation: %vcreateDate: %v\n",
+	s := fmt.Sprintf("\nmomentID: %v\nuserID: %s\npublic: %v\nhidden: %v\nLocation: %v\ncreateDate: %v\n",
 		m.momentID,
 		m.userID,
 		m.public,
@@ -940,13 +929,13 @@ type Client interface {
 }
 
 type LocationSelector interface {
-	LocationShared(sq.BaseRunner, *Location, string) ([]*Moment, error)
-	LocationPublic(sq.BaseRunner, *Location) ([]*Moment, error)
-	LocationHidden(sq.BaseRunner, *Location) ([]*Moment, error)
-	LocationLost(sq.BaseRunner, *Location, string) ([]*Moment, error)
+	LocationShared(DbRunner, *Location, string) ([]*Moment, error)
+	LocationPublic(DbRunner, *Location) ([]*Moment, error)
+	LocationHidden(DbRunner, *Location) ([]*Moment, error)
+	LocationLost(DbRunner, *Location, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
+func (mc *MomentClient) LocationShared(db DbRunner, l *Location, me string) ([]*Moment, error) {
 	if l == nil || me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -974,7 +963,7 @@ func (mc *MomentClient) LocationShared(db sq.BaseRunner, l *Location, me string)
 	return mc.selectMoments(db, query)
 }
 
-func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) ([]*Moment, error) {
+func (mc *MomentClient) LocationPublic(db DbRunner, l *Location) ([]*Moment, error) {
 	if l == nil {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1000,7 +989,7 @@ func (mc *MomentClient) LocationPublic(db sq.BaseRunner, l *Location) ([]*Moment
 	return mc.selectPublicMoments(db, query)
 }
 
-func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) ([]*Moment, error) {
+func (mc *MomentClient) LocationHidden(db DbRunner, l *Location) ([]*Moment, error) {
 	if l == nil {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1020,7 +1009,7 @@ func (mc *MomentClient) LocationHidden(db sq.BaseRunner, l *Location) ([]*Moment
 	return mc.selectLostMoments(db, query)
 }
 
-func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) ([]*Moment, error) {
+func (mc *MomentClient) LocationLost(db DbRunner, l *Location, me string) ([]*Moment, error) {
 	if l == nil || me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1043,12 +1032,12 @@ func (mc *MomentClient) LocationLost(db sq.BaseRunner, l *Location, me string) (
 }
 
 type UserSelector interface {
-	UserShared(sq.BaseRunner, string, string) ([]*Moment, error)
-	UserLeft(sq.BaseRunner, string) ([]*Moment, error)
-	UserFound(sq.BaseRunner, string) ([]*Moment, error)
+	UserShared(DbRunner, string, string) ([]*Moment, error)
+	UserLeft(DbRunner, string) ([]*Moment, error)
+	UserFound(DbRunner, string) ([]*Moment, error)
 }
 
-func (mc *MomentClient) UserShared(db sq.BaseRunner, you string, me string) ([]*Moment, error) {
+func (mc *MomentClient) UserShared(db DbRunner, you string, me string) ([]*Moment, error) {
 	if me == "" || you == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1074,7 +1063,7 @@ func (mc *MomentClient) UserShared(db sq.BaseRunner, you string, me string) ([]*
 
 	return mc.selectMoments(db, query)
 }
-func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (rs []*Moment, err error) {
+func (mc *MomentClient) UserLeft(db DbRunner, me string) (rs []*Moment, err error) {
 	if me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1101,7 +1090,7 @@ func (mc *MomentClient) UserLeft(db sq.BaseRunner, me string) (rs []*Moment, err
 	return mc.selectLeftMoments(db, query)
 }
 
-func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) ([]*Moment, error) {
+func (mc *MomentClient) UserFound(db DbRunner, me string) ([]*Moment, error) {
 	if me == "" {
 		Error.Println(ErrorParameterEmpty)
 		return nil, ErrorParameterEmpty
@@ -1126,19 +1115,10 @@ func (mc *MomentClient) UserFound(db sq.BaseRunner, me string) ([]*Moment, error
 		Where(fUserID+" = ?", me).
 		Where(fFound + " = true")
 
-	return mc.selectFoundMoment(db, query)
+	return mc.selectFoundMoments(db, query)
 }
 
-func (mc *MomentClient) parseDatetime2(s string) *time.Time {
-	t, err := time.Parse(Datetime2, findDate)
-	if err != nil {
-		Error.Println(err)
-		mc.err = err
-	}
-	return &t
-}
-
-func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+func (mc *MomentClient) selectMoments(db DbRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
 
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
@@ -1190,14 +1170,13 @@ func (mc *MomentClient) selectMoments(db sq.BaseRunner, query sq.SelectBuilder) 
 		return
 	}
 
-	for _, r := range rm {
-		rs = append(rs, r)
-	}
+	rs = momentMaptoSlice(rm)
+
 	return
 
 }
 
-func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+func (mc *MomentClient) selectPublicMoments(db DbRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
@@ -1207,27 +1186,20 @@ func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBui
 
 	m := new(MomentsRow)
 	md := new(MediaRow)
-	var createDate string
 	dest := []interface{}{
-		&createDate,
-		&m.userID,
 		&m.momentID,
 		&m.latitude,
 		&m.longitude,
 		&md.message,
 		&md.mType,
 		&md.dir,
+		&m.createDate,
+		&m.userID,
 	}
 
 	rm := make(map[int64]*Moment)
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		m.createDate = mc.parseDatetime2(createDate)
-		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
@@ -1248,10 +1220,13 @@ func (mc *MomentClient) selectPublicMoments(db sq.BaseRunner, query sq.SelectBui
 		Error.Println(err)
 		return
 	}
+
+	rs = momentMaptoSlice(rm)
+
 	return
 }
 
-func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+func (mc *MomentClient) selectLostMoments(db DbRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
@@ -1277,7 +1252,6 @@ func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuild
 				momentID: m.momentID,
 				Location: Location{latitude: m.latitude, longitude: m.longitude},
 			})
-
 	}
 	if err = rows.Err(); err != nil {
 		Error.Println(err)
@@ -1286,7 +1260,7 @@ func (mc *MomentClient) selectLostMoments(db sq.BaseRunner, query sq.SelectBuild
 	return
 }
 
-func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+func (mc *MomentClient) selectLeftMoments(db DbRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
@@ -1297,19 +1271,18 @@ func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuild
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
-	var createDate, findDate string
 	dest := []interface{}{
-		&createDate,
-		&m.public,
-		&m.hidden,
 		&m.momentID,
 		&m.latitude,
 		&m.longitude,
 		&md.message,
 		&md.mType,
 		&md.dir,
+		&m.createDate,
+		&m.public,
+		&m.hidden,
 		&f.userID,
-		&findDate,
+		&f.findDate,
 	}
 
 	var mdMap, fMap map[string]bool
@@ -1317,12 +1290,6 @@ func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuild
 
 	for rows.Next() {
 		if err = rows.Scan(dest...); err != nil {
-			Error.Println(err)
-			return
-		}
-		m.createDate = mc.parseDatetime2(createDate)
-		f.findDate = mc.parseDatetime2(findDate)
-		if err = mc.Err(); err != nil {
 			Error.Println(err)
 			return
 		}
@@ -1363,10 +1330,13 @@ func (mc *MomentClient) selectLeftMoments(db sq.BaseRunner, query sq.SelectBuild
 		Error.Println(err)
 		return
 	}
+
+	rs = momentMaptoSlice(rm)
+
 	return
 }
 
-func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
+func (mc *MomentClient) selectFoundMoments(db DbRunner, query sq.SelectBuilder) (rs []*Moment, err error) {
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		Error.Println(err)
@@ -1377,31 +1347,24 @@ func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuild
 	m := new(MomentsRow)
 	md := new(MediaRow)
 	f := new(FindsRow)
-	var createDate, findDate string
+
 	dest := []interface{}{
-		&createDate,
-		&m.userID,
-		&m.public,
-		&m.hidden,
 		&m.momentID,
 		&m.latitude,
 		&m.longitude,
 		&md.message,
 		&md.mType,
 		&md.dir,
-		&findDate,
+		&m.createDate,
+		&m.userID,
+		&m.public,
+		&m.hidden,
+		&f.findDate,
 	}
 
 	rm := make(map[int64]*Moment)
 	for rows.Next() {
-		if err = rows.Scan(dest); err != nil {
-			Error.Println(err)
-			return
-		}
-
-		m.createDate = mc.parseDatetime2(createDate)
-		f.findDate = mc.parseDatetime2(findDate)
-		if err = mc.Err(); err != nil {
+		if err = rows.Scan(dest...); err != nil {
 			Error.Println(err)
 			return
 		}
@@ -1430,6 +1393,16 @@ func (mc *MomentClient) selectFoundMoment(db sq.BaseRunner, query sq.SelectBuild
 	if err = rows.Err(); err != nil {
 		Error.Println(err)
 		return
+	}
+
+	rs = momentMaptoSlice(rm)
+
+	return
+}
+
+func momentMaptoSlice(m map[int64]*Moment) (s []*Moment) {
+	for _, v := range m {
+		s = append(s, v)
 	}
 	return
 }

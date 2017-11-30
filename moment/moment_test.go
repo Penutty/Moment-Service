@@ -3,6 +3,7 @@ package moment
 import (
 	// "errors"
 	"database/sql"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/assert"
 	// "math/rand"
 	"fmt"
@@ -135,6 +136,15 @@ func TestNewLocation(t *testing.T) {
 	}
 }
 
+func TestLocationString(t *testing.T) {
+	mc := new(MomentClient)
+	l := mc.NewLocation(lat, long)
+
+	expected := fmt.Sprintf("latitude: %v, longitude: %v", l.latitude, l.longitude)
+	actual := l.String()
+	assert.Equal(t, expected, actual)
+}
+
 func TestNewMediaRow(t *testing.T) {
 	type test struct {
 		momentID int64
@@ -157,6 +167,14 @@ func TestNewMediaRow(t *testing.T) {
 		_ = mc.NewMediaRow(v.momentID, v.message, v.mType, v.dir)
 		assert.Exactly(t, v.expected, mc.Err())
 	}
+}
+
+func TestMediaRowString(t *testing.T) {
+	mc := new(MomentClient)
+	md := mc.NewMediaRow(1, "msg", DNE, "")
+	expected := fmt.Sprintf("momentID: %v, mType: %v, message: \"%v\", dir: \"%v\"", md.momentID, md.mType, md.message, md.dir)
+	actual := md.String()
+	assert.Equal(t, expected, actual)
 }
 
 func TestNewFindsRow(t *testing.T) {
@@ -182,6 +200,14 @@ func TestNewFindsRow(t *testing.T) {
 	}
 }
 
+func TestFindsRowString(t *testing.T) {
+	mc := new(MomentClient)
+	f := mc.NewFindsRow(1, tUser, false, &time.Time{})
+	expected := fmt.Sprintf("momentID: %v, userID: %v, found: %v, findDate: %v", f.momentID, f.userID, f.found, f.findDate)
+	actual := f.String()
+	assert.Equal(t, expected, actual)
+}
+
 func TestNewSharesRow(t *testing.T) {
 	type test struct {
 		momentID    int64
@@ -202,6 +228,14 @@ func TestNewSharesRow(t *testing.T) {
 		_ = mc.NewSharesRow(v.momentID, v.userID, v.all, v.recipientID)
 		assert.Exactly(t, v.expected, mc.Err())
 	}
+}
+
+func TestSharesRowString(t *testing.T) {
+	mc := new(MomentClient)
+	s := mc.NewSharesRow(1, tUser, false, tUser2)
+	expected := fmt.Sprintf("momentID: %v, userID: %v, all: %v, recipientID: %v", s.momentID, s.userID, s.all, s.recipientID)
+	actual := s.String()
+	assert.Equal(t, expected, actual)
 }
 
 func TestNewMomentsRow(t *testing.T) {
@@ -230,6 +264,30 @@ func TestNewMomentsRow(t *testing.T) {
 		_ = mc.NewMomentsRow(v.location, v.userID, v.public, v.hidden, v.createDate)
 		assert.Exactly(t, v.expected, mc.Err())
 	}
+}
+
+func TestMomentsRowString(t *testing.T) {
+	mc := new(MomentClient)
+	dt := time.Now().UTC()
+	m := mc.NewMomentsRow(mc.NewLocation(lat, long), tUser, false, false, &dt)
+	expected := fmt.Sprintf("id: %v, userID: %v, Location: %v, public: %v, hidden: %v, creatDate: %v", m.momentID, m.userID, m.Location, m.public, m.hidden, m.createDate)
+	actual := m.String()
+	assert.Equal(t, expected, actual)
+}
+
+func TestMomentString(t *testing.T) {
+	dt := time.Now().UTC()
+	m := Moment{
+		momentID:   1,
+		userID:     tUser,
+		public:     false,
+		hidden:     false,
+		Location:   Location{latitude: lat, longitude: long},
+		createDate: &dt,
+	}
+	expected := fmt.Sprintf("\nmomentID: %v\nuserID: %v\npublic: %v\nhidden: %v\nLocation: %v\ncreateDate: %v\nmedia:\nfinds:\nshares:\n", m.momentID, m.userID, m.public, m.hidden, m.Location, m.createDate)
+	actual := m.String()
+	assert.Equal(t, expected, actual)
 }
 
 var (
@@ -440,6 +498,24 @@ func TestShare(t *testing.T) {
 
 		assert.Nil(t, mock.ExpectationsWereMet())
 	})
+}
+
+func Test_insert(t *testing.T) {
+	db, _, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	invalidParameter := 1
+	_, err = insert(db, invalidParameter)
+	assert.Equal(t, ErrorTypeNotImplemented, err)
+}
+
+func Test_update(t *testing.T) {
+	db, _, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	invalidParameter := 1
+	err = update(db, invalidParameter)
+	assert.Equal(t, ErrorTypeNotImplemented, err)
 }
 
 func TestLocationShared(t *testing.T) {
@@ -725,24 +801,113 @@ func TestUserFound(t *testing.T) {
 
 }
 
-//func TestselectMoments(t *testing.T) {
-//	dt := time.Now().UTC()
-//	rows := sqlmock.
-//		NewRows([]string{
-//			iD,
-//			latStr,
-//			longStr,
-//			message,
-//			mtype,
-//			dir,
-//			createDate,
-//			userID,
-//			public,
-//			hidden}).
-//		AddRow(1, 0.00, 0.00, "Helloworld.", DNE, "", &dt, tUser, false, false).
-//		AddRow(2, 0.00, 0.00, "Hi how are you?", DNE, "", &dt, tUser, false, false)
-//
-//}
+var (
+	fakeSelect       = sq.Select("fakeColumn").From("fakeTbl")
+	fakeSelectRegexp = `^SELECT fakeColumn FROM fakeTbl$`
+)
+
+func Test_selectMoments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	query := fakeSelect
+
+	dt := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{iD, latStr, longStr, message, mtype, dir, createDate, userID, public, hidden}).
+		AddRow(1, lat, long, "Hello there.", DNE, "", &dt, tUser, false, false).
+		AddRow(1, lat, long, "Enjoy this photo.", Image, "D:/ImageDir/image.png", &dt, tUser, false, false).
+		AddRow(2, lat, long, "Where am I? :p", DNE, "", &dt, tUser, true, true)
+
+	mock.ExpectQuery(fakeSelectRegexp).WillReturnRows(rows)
+
+	mc := new(MomentClient)
+	rs, err := mc.selectMoments(db, query)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(rs))
+
+	assert.Nil(t, mock.ExpectationsWereMet())
+}
+
+func Test_selectPublicMoments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	dt := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{iD, latStr, longStr, message, mtype, dir, createDate, userID}).
+		AddRow(1, lat, long, "message 1", DNE, "", &dt, tUser).
+		AddRow(1, lat, long, "message 2", DNE, "", &dt, tUser).
+		AddRow(2, lat, long, "message 3", DNE, "", &dt, tUser)
+
+	mock.ExpectQuery(fakeSelectRegexp).WillReturnRows(rows)
+
+	mc := new(MomentClient)
+	rs, err := mc.selectPublicMoments(db, fakeSelect)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(rs))
+	assert.Nil(t, mock.ExpectationsWereMet())
+}
+
+func Test_selectLostMoments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	rows := sqlmock.NewRows([]string{iD, latStr, longStr}).
+		AddRow(1, lat, long).
+		AddRow(2, lat, long).
+		AddRow(3, lat, long)
+
+	mock.ExpectQuery(fakeSelectRegexp).WillReturnRows(rows)
+
+	mc := new(MomentClient)
+	rs, err := mc.selectLostMoments(db, fakeSelect)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(rs))
+	assert.Nil(t, mock.ExpectationsWereMet())
+}
+
+func Test_selectLeftMoments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	dt := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{iD, latStr, longStr, message, mtype, dir, createDate, public, hidden, userID, findDate}).
+		AddRow(1, lat, long, "message 1", DNE, "", &dt, false, false, tUser2, &dt).
+		AddRow(2, lat, long, "message 2", DNE, "", &dt, false, false, tUser2, &dt).
+		AddRow(2, lat, long, "message 3", Image, "D:/Image/image.png", &dt, false, false, tUser2, &dt).
+		AddRow(3, lat, long, "message 4", DNE, "", &dt, false, false, tUser2, &dt).
+		AddRow(3, lat, long, "message 4", DNE, "", &dt, false, false, tUser3, &dt)
+
+	mock.ExpectQuery(fakeSelectRegexp).WillReturnRows(rows)
+
+	mc := new(MomentClient)
+	rs, err := mc.selectLeftMoments(db, fakeSelect)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(rs))
+
+	assert.Nil(t, mock.ExpectationsWereMet())
+}
+
+func Test_selectFoundMoments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.Nil(t, err)
+
+	dt := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{iD, latStr, longStr, message, mtype, dir, createDate, userID, public, hidden, findDate}).
+		AddRow(1, lat, long, "message 1", DNE, "", &dt, tUser, false, false, &dt).
+		AddRow(2, lat, long, "message 2", DNE, "", &dt, tUser, false, false, &dt).
+		AddRow(2, lat, long, "message 3", Image, "D:/Image/image.png", &dt, tUser, false, false, &dt).
+		AddRow(3, lat, long, "message 4", DNE, "", &dt, tUser, true, true, &dt).
+		AddRow(3, lat, long, "message 5", DNE, "", &dt, tUser, true, true, &dt)
+
+	mock.ExpectQuery(fakeSelectRegexp).WillReturnRows(rows)
+
+	mc := new(MomentClient)
+	rs, err := mc.selectFoundMoments(db, fakeSelect)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(rs))
+
+	assert.Nil(t, mock.ExpectationsWereMet())
+}
 
 //const (
 //	single int = 1
