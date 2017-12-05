@@ -85,8 +85,10 @@ func (a *app) momentPatchHandler(w http.ResponseWriter, r *http.Request) {
 	var err error
 	action := r.Form.Get("action")
 	switch action {
-	case "find":
-		err = a.findMoment(r)
+	case "findpublic":
+		err = a.findPublicMoment(r)
+	case "findprivate":
+		err = a.findPrivateMoment(r)
 	case "share":
 		err = a.shareMoment(r)
 	default:
@@ -230,6 +232,7 @@ func (a *app) getLeftMoment(r *http.Request) error {
 	if err = json.NewEncoder(w).Encode(moments); err != nil {
 		return err
 	}
+	return nil
 }
 
 func (a *app) getPublicMoment(r *http.Request) error {
@@ -255,14 +258,55 @@ func (a *app) getPublicMoment(r *http.Request) error {
 	if err = json.NewEncoder(w).Encode(moments); err != nil {
 		return err
 	}
+	return nil
 }
 
-func (a *app) findMoment(r *http.Request) {
+func (a *app) findPrivateMoment(r *http.Request) error {
+	type body struct {
+		momentID int64
+		me       string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+		return err
+	}
 
+	dt := time.Now().UTC()
+	f := a.c.NewFindsRow(b.momentID, b.me, true, &dt)
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	if err := a.c.FindPrivate(moment.MomentDB(), f); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) findPublicMoment(r *http.Request) error {
+	type body struct {
+		momentID int64
+		me       string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+		return err
+	}
+
+	dt := time.Now().UTC()
+	f := a.c.NewFindsRow(b.momentID, b.me, true, &dt)
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	_, err := a.c.FindPublic(moment.MomentDB(), f)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *app) shareMoment(r *http.Request) {
-
 }
 
 func genErrorHandler(w http.ResponseWriter, err error) {

@@ -135,16 +135,43 @@ func (mc *MomentClient) FindPrivate(db DbRunner, f *FindsRow) (err error) {
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (mc *MomentClient) Share(db DbRunner, ss []*SharesRow) (cnt int64, err error) {
-	if len(ss) == 0 {
+func (mc *MomentClient) Share(db DbRunner, s *SharesRow, rs []*RecipientsRow) (err error) {
+	if len(rs) == 0 || s == nil {
 		Error.Println(ErrorParameterEmpty)
 		err = ErrorParameterEmpty
 		return
 	}
 
-	cnt, err = insert(db, ss)
+	tx, err := db.Begin()
 	if err != nil {
 		Error.Println(err)
+		return
+	}
+	defer func() {
+		if err != nil {
+			if txerr := tx.Rollback(); txerr != nil {
+				Error.Println(txerr)
+			}
+			Error.Println(txerr)
+			return
+		}
+		tx.Commit()
+	}()
+
+	id, err = insert(tx, s)
+	if err != nil {
+		Error.Println(err)
+	}
+	s.sharesID = id
+
+	for _, r := range rs {
+		r.setSharesID(id)
+		if err = r.err; err != nil {
+			return
+		}
+	}
+	if _, err = insert(tx, rs); err != nil {
+		return
 	}
 	return
 }
@@ -264,12 +291,12 @@ func insert(db DbRunner, i interface{}) (resVal int64, err error) {
 		for _, f := range v {
 			insert = insert.Values(f.momentID, f.userID, f.found, f.findDate)
 		}
-	case []*SharesRow:
+	case []*RecipientsRow:
 		insert = sq.
-			Insert(momentSchema+"."+shares).
-			Columns(momentID, userID, all, recipientID)
-		for _, s := range v {
-			insert = insert.Values(s.momentID, s.userID, s.all, s.recipientID)
+			Insert(schRecipients).
+			Columns(sharesID, all, recipientID)
+		for _, r := range v {
+			insert = insert.Values(r.sharesID, r.all, r.recipientID)
 		}
 	case []*MediaRow:
 		insert = sq.
@@ -283,6 +310,11 @@ func insert(db DbRunner, i interface{}) (resVal int64, err error) {
 			Insert(momentSchema+"."+moments).
 			Columns(userID, latStr, longStr, public, hidden, createDate).
 			Values(v.userID, v.latitude, v.longitude, v.public, v.hidden, v.createDate)
+	case *SharesRow:
+		insert = sq.
+			Insert(schShares).
+			Columns(momentID, userID).
+			Values(v.momentID, v.userID)
 	default:
 		return resVal, ErrorTypeNotImplemented
 	}
@@ -294,6 +326,8 @@ func insert(db DbRunner, i interface{}) (resVal int64, err error) {
 	}
 
 	switch i.(type) {
+	case *SharesRow:
+		fallthrough
 	case *MomentsRow:
 		resVal, err = res.LastInsertId()
 	default:
@@ -582,36 +616,21 @@ func (f *FindsRow) setUserID(uID string) {
 	return
 }
 
-var ErrorAllRecipientExists = errors.New("s.all=true, therefore s.recipientID must be \"\"")
-var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID must be set")
-
 // NewShare is a constructor for the SharesRow struct.
-func (mc *MomentClient) NewSharesRow(mID int64, uID string, all bool, r string) (s *SharesRow) {
+func (mc *MomentClient) NewSharesRow(id int64, mID int64, uID string) (s *SharesRow) {
 	if mc.err != nil {
 		return
 	}
 
 	s = new(SharesRow)
 
+	s.setID(id)
 	s.setMomentID(mID)
 	s.setUserID(uID)
-	s.setRecipientID(r)
+
 	if s.err != nil {
 		Error.Println(s.err)
 		mc.err = s.err
-		return
-	}
-
-	s.all = all
-
-	if s.all && s.recipientID != "" {
-		Error.Println(ErrorAllRecipientExists)
-		mc.err = ErrorAllRecipientExists
-		return
-	}
-	if !s.all && s.recipientID == "" {
-		Error.Println(ErrorNotAllRecipientDNE)
-		mc.err = ErrorNotAllRecipientDNE
 		return
 	}
 
@@ -620,33 +639,25 @@ func (mc *MomentClient) NewSharesRow(mID int64, uID string, all bool, r string) 
 
 // SharesRow is a row in the [Moment-Db].[moment].[Shares] table.
 type SharesRow struct {
+	sID
 	mID
 	uID
-	all         bool
-	recipientID string
-	err         error
+	err error
 }
 
 // String returns a string representation of a SharesRow instance.
 func (s SharesRow) String() string {
-	return fmt.Sprintf("momentID: %v, userID: %v, all: %v, recipientID: %v",
+	return fmt.Sprintf("ID: %v, momentID: %v, userID: %v",
+		s.iD,
 		s.momentID,
-		s.userID,
-		s.all,
-		s.recipientID)
+		s.userID)
 }
 
-func (s *SharesRow) setRecipientID(id string) {
+func (s *SharesRow) setID(id int64) {
 	if s.err != nil {
 		return
 	}
-
-	if err := checkUserIDLong(id); err != nil {
-		s.err = err
-		return
-	}
-	s.recipientID = id
-	return
+	s.err = s.sID.setSharesID(id)
 }
 
 func (s *SharesRow) setMomentID(mID int64) {
@@ -661,6 +672,59 @@ func (s *SharesRow) setUserID(uID string) {
 		return
 	}
 	s.err = s.uID.setUserID(uID)
+}
+
+// RecipientRow is a row in the [Moment-Db].[moment].[Shares] table.
+type RecipientRow struct {
+	sID
+	all         bool
+	recipientID string
+	err         error
+}
+
+var ErrorAllRecipientExists = errors.New("s.all=true, therefore s.recipientID must be \"\"")
+var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID must be set")
+
+func (mc *MomentClient) NewRecipientsRow(sharesID int64, all bool, recipientID string) *RecipientRow {
+	if mc.err != nil {
+		return
+	}
+	r := new(RecipientRow)
+
+	r.setSharesID(sharesID)
+	r.setRecipientID(recipientID)
+	r.all = all
+
+	if r.all && len(r.recipientID) > 0 {
+		Error.Println(ErrorAllRecipientExists)
+		mc.err = ErrorAllRecipientExists
+		return
+	}
+	if !r.all && len(r.recipientID) == 0 {
+		Error.Println(ErrorNotAllRecipientDNE)
+		mc.err = ErrorNotAllRecipientDNE
+		return
+	}
+
+	return r
+}
+
+func (r *RecipientsRow) setSharesID(id int64) {
+	if r.err != nil {
+		return
+	}
+	r.err = r.sID.setSharesID(id)
+}
+
+func (r *RecipientsRow) setRecipientID(u string) {
+	if r.err != nil {
+		return
+	}
+	if err := checkUserIDLong(u); err != nil {
+		r.err = err
+		return
+	}
+	r.recipientID = u
 }
 
 var ErrorLatitude = errors.New("Latitude must be between -180 and 180.")
@@ -747,6 +811,17 @@ func (u *uID) setUserID(id string) (err error) {
 	return
 }
 
+type sID struct {
+	sharesID int64
+}
+
+func (s *sID) setSharesID(id int64) (err error) {
+	if err = checkSharesID(id); err != nil {
+		return
+	}
+	s.sharesID = id
+}
+
 var ErrorTimePtrNil = errors.New("t *time.Time is set to nil")
 
 // checkTime ensures that the value of t is a valid address.
@@ -809,13 +884,22 @@ func checkUserIDShort(id string) (err error) {
 	return
 }
 
+// checkSharesID ensures that the id is greater than 0, and returns ErrorSharesID on error.
+func checkSharesID(id int64) error {
+	if id < 0 {
+		return ErrorSharesID
+	}
+	return
+}
+
 var ErrorFoundFalseFindDateNil = errors.New("A found row must have f.found=true and f.findDate=*time.Time{}")
 
 const (
-	momentsAlias = "m"
-	mediaAlias   = "md"
-	sharesAlias  = "s"
-	findsAlias   = "f"
+	momentsAlias    = "m"
+	mediaAlias      = "md"
+	sharesAlias     = "s"
+	findsAlias      = "f"
+	recipientsAlias = "r"
 
 	noJoin  = ""
 	noAlias = ""
@@ -832,15 +916,17 @@ const (
 
 	momentSchema = "[moment]"
 
-	moments = "[Moments]"
-	finds   = "[Finds]"
-	media   = "[Media]"
-	shares  = "[Shares]"
+	moments    = "[Moments]"
+	finds      = "[Finds]"
+	media      = "[Media]"
+	shares     = "[Shares]"
+	recipients = "[Recipients]"
 
-	schMoments = momentSchema + "." + moments
-	schFinds   = momentSchema + "." + finds
-	schMedia   = momentSchema + "." + media
-	schShares  = momentSchema + "." + shares
+	schMoments    = momentSchema + "." + moments
+	schFinds      = momentSchema + "." + finds
+	schMedia      = momentSchema + "." + media
+	schShares     = momentSchema + "." + shares
+	schRecipients = momentSchema + "." + recipients
 
 	iD         = "[ID]"
 	momentID   = "[MomentID]"
@@ -867,13 +953,17 @@ const (
 	fFindDate = findsAlias + "." + findDate
 	fFound    = findsAlias + "." + found
 
+	siD       = sharesAlias + "." + momentID
+	sMomentID = sharesAlias + "." + momentID
+	sUserID   = sharesAlias + "." + userID
+
+	sharesID    = "[SharesID]"
 	recipientID = "[RecipientID]"
 	all         = "[All]"
 
-	sMomentID    = sharesAlias + "." + momentID
-	sUserID      = sharesAlias + "." + userID
-	sRecipientID = sharesAlias + "." + recipientID
-	sAll         = sharesAlias + "." + all
+	sSharesID    = recipientsAlias + "." + sharesID
+	sRecipientID = recipientsAlias + "." + recipientID
+	sAll         = recipientsAlias + "." + all
 
 	message = "[Message]"
 	mtype   = "[Type]"
