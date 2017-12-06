@@ -210,30 +210,27 @@ func TestFindsRowString(t *testing.T) {
 
 func TestNewSharesRow(t *testing.T) {
 	type test struct {
-		momentID    int64
-		userID      string
-		all         bool
-		recipientID string
-		expected    error
+		sharesID int64
+		momentID int64
+		userID   string
+		expected error
 	}
 	tests := []test{
-		test{1, tUser, false, "user_02", nil},
-		test{1, tUser, true, "user_02", ErrorAllRecipientExists},
-		test{1, tUser, true, "", nil},
-		test{1, tUser, false, "", ErrorNotAllRecipientDNE},
+		test{1, 1, tUser, nil},
+		test{1, 1, strings.Repeat(tUser, 100), ErrorUserIDLong},
 	}
 
 	for _, v := range tests {
 		mc := new(MomentClient)
-		_ = mc.NewSharesRow(v.momentID, v.userID, v.all, v.recipientID)
+		_ = mc.NewSharesRow(v.sharesID, v.momentID, v.userID)
 		assert.Exactly(t, v.expected, mc.Err())
 	}
 }
 
 func TestSharesRowString(t *testing.T) {
 	mc := new(MomentClient)
-	s := mc.NewSharesRow(1, tUser, false, tUser2)
-	expected := fmt.Sprintf("momentID: %v, userID: %v, all: %v, recipientID: %v", s.momentID, s.userID, s.all, s.recipientID)
+	s := mc.NewSharesRow(1, 1, tUser)
+	expected := fmt.Sprintf("ID: %v, momentID: %v, userID: %v", s.sharesID, s.momentID, s.userID)
 	actual := s.String()
 	assert.Equal(t, expected, actual)
 }
@@ -275,6 +272,28 @@ func TestMomentsRowString(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 
+func TestNewRecipientsRow(t *testing.T) {
+	type test struct {
+		id        int64
+		all       bool
+		recipient string
+		expected  error
+	}
+
+	tests := []test{
+		test{0, false, tUser, nil},
+		test{0, true, tEmptyUser, nil},
+		test{0, false, tEmptyUser, ErrorNotAllRecipientDNE},
+		test{0, true, tUser, ErrorAllRecipientExists},
+	}
+
+	for _, v := range tests {
+		mc := new(MomentClient)
+		_ = mc.NewRecipientsRow(v.id, v.all, v.recipient)
+		assert.Exactly(t, v.expected, mc.Err())
+	}
+}
+
 func TestMomentString(t *testing.T) {
 	dt := time.Now().UTC()
 	m := Moment{
@@ -309,11 +328,16 @@ var (
 		found,
 		findDate)
 
-	SharesRowRegexpStr = fmt.Sprintf(`INSERT INTO \%s\.\%s \(\%s,\%s,\%s,\%s\) VALUES \(\?,\?,\?,\?\)$`,
+	SharesRowRegexpStr = fmt.Sprintf(`INSERT INTO \%s\.\%s \(\%s,\%s\) VALUES \(\?,\?\)$`,
 		momentSchema,
 		shares,
 		momentID,
-		userID,
+		userID)
+
+	RecipientsRowRegexpStr = fmt.Sprintf(`INSERT INTO \%s\.\%s \(\%s,\%s,\%s\) VALUES \(\?,\?,\?\)$`,
+		momentSchema,
+		recipients,
+		sharesID,
 		all,
 		recipientID)
 
@@ -479,7 +503,7 @@ func TestShare(t *testing.T) {
 	t.Run("Parameter Checks", func(t *testing.T) {
 		db, _, err := sqlmock.New()
 		mc := new(MomentClient)
-		_, err = mc.Share(db, nil)
+		err = mc.Share(db, nil, nil)
 		assert.Equal(t, ErrorParameterEmpty, err)
 	})
 
@@ -487,14 +511,25 @@ func TestShare(t *testing.T) {
 		db, mock, err := sqlmock.New()
 		mc := new(MomentClient)
 
+		mock.ExpectBegin()
+
 		mock.ExpectExec(SharesRowRegexpStr).
-			WithArgs(1, tUser, true, tEmptyUser).
+			WithArgs(1, tUser).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+
+		mock.ExpectExec(RecipientsRowRegexpStr).
+			WithArgs(1, false, tUser2).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		s := mc.NewSharesRow(1, tUser, true, tEmptyUser)
-		cnt, err := mc.Share(db, []*SharesRow{s})
+		mock.ExpectCommit()
+
+		s := mc.NewSharesRow(0, 1, tUser)
+		rs := []*RecipientsRow{mc.NewRecipientsRow(0, false, tUser2)}
+		t.Log(s)
+		t.Log(rs[0])
+
+		err = mc.Share(db, s, rs)
 		assert.Nil(t, err)
-		assert.Equal(t, int64(1), cnt)
 
 		assert.Nil(t, mock.ExpectationsWereMet())
 	})
@@ -547,9 +582,11 @@ func TestLocationShared(t *testing.T) {
 		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
 		JOIN \` + momentSchema + `\.\` + shares + ` ` + sharesAlias + `
 		  ON ` + sharesAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + recipients + ` ` + recipientsAlias + `
+		  ON ` + recipientsAlias + `\.\` + sharesID + ` = ` + sharesAlias + `\.\` + iD + `
 		WHERE ` + momentsAlias + `\.\` + latStr + ` BETWEEN \? AND \?
 			  AND ` + momentsAlias + `\.\` + longStr + ` BETWEEN \? AND \?
-			  AND \(` + sharesAlias + `\.\` + recipientID + ` = \? OR ` + sharesAlias + `\.\` + all + ` = 1\)$`)
+			  AND \(` + recipientsAlias + `\.\` + recipientID + ` = \? OR ` + recipientsAlias + `\.\` + all + ` = 1\)$`)
 
 		rows := sqlmock.NewRows([]string{"NoColumns"})
 
@@ -701,8 +738,10 @@ func TestUserShared(t *testing.T) {
 		  ON ` + mediaAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
 		JOIN \` + momentSchema + `\.\` + shares + ` ` + sharesAlias + `
 		  ON ` + sharesAlias + `\.\` + momentID + ` = ` + momentsAlias + `\.\` + iD + `
+		JOIN \` + momentSchema + `\.\` + recipients + ` ` + recipientsAlias + `
+		  ON ` + recipientsAlias + `\.\` + sharesID + ` = ` + sharesAlias + `\.\` + iD + `
 		WHERE ` + sharesAlias + `\.\` + userID + ` = \?
-			  AND \(` + sharesAlias + `\.\` + recipientID + ` = \? OR ` + sharesAlias + `\.\` + all + ` = true\)$`)
+			  AND \(` + recipientsAlias + `\.\` + recipientID + ` = \? OR ` + recipientsAlias + `\.\` + all + ` = true\)$`)
 
 		rows := sqlmock.NewRows([]string{"NoColumns"})
 		mock.ExpectQuery(s).WithArgs(tUser, tUser2).WillReturnRows(rows)

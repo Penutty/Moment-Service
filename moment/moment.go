@@ -135,7 +135,7 @@ func (mc *MomentClient) FindPrivate(db DbRunner, f *FindsRow) (err error) {
 
 // Share is an exported package that allows the insertion of a
 // Shares instance into the [Moment-Db].[moment].[Shares] table.
-func (mc *MomentClient) Share(db DbRunner, s *SharesRow, rs []*RecipientsRow) (err error) {
+func (mc *MomentClient) Share(db DbRunnerTrans, s *SharesRow, rs []*RecipientsRow) (err error) {
 	if len(rs) == 0 || s == nil {
 		Error.Println(ErrorParameterEmpty)
 		err = ErrorParameterEmpty
@@ -152,13 +152,13 @@ func (mc *MomentClient) Share(db DbRunner, s *SharesRow, rs []*RecipientsRow) (e
 			if txerr := tx.Rollback(); txerr != nil {
 				Error.Println(txerr)
 			}
-			Error.Println(txerr)
+			Error.Println(err)
 			return
 		}
 		tx.Commit()
 	}()
 
-	id, err = insert(tx, s)
+	id, err := insert(tx, s)
 	if err != nil {
 		Error.Println(err)
 	}
@@ -327,7 +327,7 @@ func insert(db DbRunner, i interface{}) (resVal int64, err error) {
 
 	switch i.(type) {
 	case *SharesRow:
-		fallthrough
+		resVal, err = res.LastInsertId()
 	case *MomentsRow:
 		resVal, err = res.LastInsertId()
 	default:
@@ -648,7 +648,7 @@ type SharesRow struct {
 // String returns a string representation of a SharesRow instance.
 func (s SharesRow) String() string {
 	return fmt.Sprintf("ID: %v, momentID: %v, userID: %v",
-		s.iD,
+		s.sharesID,
 		s.momentID,
 		s.userID)
 }
@@ -675,7 +675,7 @@ func (s *SharesRow) setUserID(uID string) {
 }
 
 // RecipientRow is a row in the [Moment-Db].[moment].[Shares] table.
-type RecipientRow struct {
+type RecipientsRow struct {
 	sID
 	all         bool
 	recipientID string
@@ -685,11 +685,11 @@ type RecipientRow struct {
 var ErrorAllRecipientExists = errors.New("s.all=true, therefore s.recipientID must be \"\"")
 var ErrorNotAllRecipientDNE = errors.New("s.all=false, therefore s.recipientID must be set")
 
-func (mc *MomentClient) NewRecipientsRow(sharesID int64, all bool, recipientID string) *RecipientRow {
+func (mc *MomentClient) NewRecipientsRow(sharesID int64, all bool, recipientID string) (r *RecipientsRow) {
 	if mc.err != nil {
 		return
 	}
-	r := new(RecipientRow)
+	r = new(RecipientsRow)
 
 	r.setSharesID(sharesID)
 	r.setRecipientID(recipientID)
@@ -820,6 +820,7 @@ func (s *sID) setSharesID(id int64) (err error) {
 		return
 	}
 	s.sharesID = id
+	return
 }
 
 var ErrorTimePtrNil = errors.New("t *time.Time is set to nil")
@@ -832,7 +833,7 @@ func checkTime(t *time.Time) (err error) {
 	return
 }
 
-var ErrorMomentID = errors.New("*id must be >= 1.")
+var ErrorMomentID = errors.New("momentID invalid")
 
 // checkMomentID ensures that id is greater 0.
 func checkMomentID(id int64) (err error) {
@@ -884,8 +885,10 @@ func checkUserIDShort(id string) (err error) {
 	return
 }
 
+var ErrorSharesID = errors.New("sharesID invalid")
+
 // checkSharesID ensures that the id is greater than 0, and returns ErrorSharesID on error.
-func checkSharesID(id int64) error {
+func checkSharesID(id int64) (err error) {
 	if id < 0 {
 		return ErrorSharesID
 	}
@@ -953,7 +956,7 @@ const (
 	fFindDate = findsAlias + "." + findDate
 	fFound    = findsAlias + "." + found
 
-	siD       = sharesAlias + "." + momentID
+	siD       = sharesAlias + "." + iD
 	sMomentID = sharesAlias + "." + momentID
 	sUserID   = sharesAlias + "." + userID
 
@@ -961,9 +964,9 @@ const (
 	recipientID = "[RecipientID]"
 	all         = "[All]"
 
-	sSharesID    = recipientsAlias + "." + sharesID
-	sRecipientID = recipientsAlias + "." + recipientID
-	sAll         = recipientsAlias + "." + all
+	rSharesID    = recipientsAlias + "." + sharesID
+	rRecipientID = recipientsAlias + "." + recipientID
+	rAll         = recipientsAlias + "." + all
 
 	message = "[Message]"
 	mtype   = "[Type]"
@@ -1046,9 +1049,10 @@ func (mc *MomentClient) LocationShared(db DbRunner, l *Location, me string) ([]*
 		From(schMoments+" "+momentsAlias).
 		Join(schMedia+" "+mediaAlias+" ON "+mdMomentID+" = "+miD).
 		Join(schShares+" "+sharesAlias+" ON "+sMomentID+" = "+miD).
+		Join(schRecipients+" "+recipientsAlias+" ON "+rSharesID+" = "+siD).
 		Where(mLat+" BETWEEN ? AND ?", l.latitude-1, l.latitude+1).
 		Where(mLong+" BETWEEN ? AND ?", l.longitude-1, l.longitude+1).
-		Where("("+sRecipientID+" = ? OR "+sAll+" = 1)", me)
+		Where("("+rRecipientID+" = ? OR "+rAll+" = 1)", me)
 
 	return mc.selectMoments(db, query)
 }
@@ -1148,8 +1152,9 @@ func (mc *MomentClient) UserShared(db DbRunner, you string, me string) ([]*Momen
 		From(schMoments+" "+momentsAlias).
 		Join(schMedia+" "+mediaAlias+" ON "+mdMomentID+" = "+miD).
 		Join(schShares+" "+sharesAlias+" ON "+sMomentID+" = "+miD).
+		Join(schRecipients+" "+recipientsAlias+" ON "+rSharesID+" = "+siD).
 		Where(sUserID+" = ?", you).
-		Where("("+sRecipientID+" = ? OR "+sAll+" = true)", me)
+		Where("("+rRecipientID+" = ? OR "+rAll+" = true)", me)
 
 	return mc.selectMoments(db, query)
 }

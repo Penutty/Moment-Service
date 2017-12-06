@@ -40,6 +40,7 @@ func (a *app) momentHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		a.momentGetHandler(w, r)
 	case http.MethodPost:
+		a.momentPostHandler(w, r)
 		if err := a.postMoment(r); err != nil {
 			genErrorHandler(w, err)
 			return
@@ -51,6 +52,26 @@ func (a *app) momentHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+}
+
+func (a *app) momentPostHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	momentType := r.Form.Get("type")
+	switch momentType {
+	case "private":
+		err = a.postPrivateMoment(w, r)
+	case "public":
+		err = a.postPublicMoment(w, r)
+	default:
+		log.Println(ErrorBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		genErrorHandler(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 
 func (a *app) momentGetHandler(w http.ResponseWriter, r *http.Request) {
@@ -94,10 +115,93 @@ func (a *app) momentPatchHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		log.Println(ErrorBadRequest)
 	}
+	if err != nil {
+		genErrorHandler(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *app) postMoment(r *http.Request) {
+func (a *app) postPrivateMoment(w http.ResponseWriter, r *http.Request) error {
+	type medium struct {
+		message string
+		mtype   uint8
+	}
+	type recipient struct {
+		userID string
+	}
+	type body struct {
+		latitude   float32
+		longitude  float32
+		userID     string
+		public     bool
+		hidden     bool
+		createDate time.Time
+		recipients []recipient
+		media      []medium
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
 
+	l := a.c.NewLocation(b.latitude, b.longitude)
+	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, b.createDate)
+
+	var ms []*moment.MediaRow
+	for _, md := range b.media {
+		ms := append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+	}
+
+	var fs []*moment.FindsRow
+	for _, r := range b.recipients {
+		fs := append(rs, a.c.NewFindsRow(0, r.userID, false, &time.Time{}))
+	}
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	if err := a.c.CreatePrivate(a.c.MomentDB(), m, ms, fs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) postPublicMoment(w http.ResponseWriter, r *http.Request) error {
+	type medium struct {
+		message string
+		mtype   uint8
+	}
+	type body struct {
+		latitude   float32
+		longitude  float32
+		userID     string
+		public     bool
+		hidden     bool
+		createDate time.Time
+		recipients []recipient
+		media      []medium
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	l := a.c.NewLocation(b.latitude, b.longitude)
+	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, b.createDate)
+
+	var ms []*moment.MediaRow
+	for _, md := range b.media {
+		ms := append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+	}
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	if err := a.c.CreatePublic(a.c.MomentDB(), m, ms); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *app) getHiddenMoment(r *http.Request) error {
@@ -115,7 +219,7 @@ func (a *app) getHiddenMoment(r *http.Request) error {
 		return err
 	}
 
-	moments, err := a.c.LocationHidden(moment.MomentDB(), l)
+	moments, err := a.c.LocationHidden(a.c.MomentDB(), l)
 	if err != nil {
 		return err
 	}
@@ -307,6 +411,34 @@ func (a *app) findPublicMoment(r *http.Request) error {
 }
 
 func (a *app) shareMoment(r *http.Request) {
+	type recipient struct {
+		all       bool
+		recipient string
+	}
+	type body struct {
+		momentID   int64
+		userID     string
+		recipients []recipient
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+		return err
+	}
+
+	s := a.c.NewSharesRow(0, b.momentID, b.userID)
+	var rs []*moment.RecipientsRow
+	for _, r := range s.recipients {
+		rs = append(rs, a.c.NewSharesRow(0, r.all, r.recipient))
+	}
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	err := a.c.Share(moment.MomentDB(), s, rs)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func genErrorHandler(w http.ResponseWriter, err error) {
