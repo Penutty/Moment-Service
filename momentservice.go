@@ -2,12 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"github.com/penutty/moment"
+	"errors"
+	"github.com/penutty/momentservice/moment"
 	"log"
 	"net/http"
-	"os"
-	"strings"
+	"time"
 )
 
 const (
@@ -22,13 +21,14 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc(MomentEndpoint, momentHandler)
+	mux.HandleFunc(MomentEndpoint, a.momentHandler)
 
 	log.Fatal(http.ListenAndServe(listenPort, mux))
 }
 
 var (
 	ErrorMethodNotImplemented = errors.New("Request method is not implemented by API endpoint.")
+	ErrorBadRequest           = errors.New("Request is invalid.")
 )
 
 type app struct {
@@ -41,15 +41,11 @@ func (a *app) momentHandler(w http.ResponseWriter, r *http.Request) {
 		a.momentGetHandler(w, r)
 	case http.MethodPost:
 		a.momentPostHandler(w, r)
-		if err := a.postMoment(r); err != nil {
-			genErrorHandler(w, err)
-			return
-		}
 	case http.MethodPatch:
-		a.MomentPatchHandler(w, r)
+		a.momentPatchHandler(w, r)
 	default:
-		log.Println(ErrorBadRequest)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		log.Println(ErrorMethodNotImplemented)
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 		return
 	}
 }
@@ -59,9 +55,9 @@ func (a *app) momentPostHandler(w http.ResponseWriter, r *http.Request) {
 	momentType := r.Form.Get("type")
 	switch momentType {
 	case "private":
-		err = a.postPrivateMoment(w, r)
+		err = a.postPrivateMoment(r)
 	case "public":
-		err = a.postPublicMoment(w, r)
+		err = a.postPublicMoment(r)
 	default:
 		log.Println(ErrorBadRequest)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -80,24 +76,26 @@ func (a *app) momentGetHandler(w http.ResponseWriter, r *http.Request) {
 	momentType := r.Form.Get("type")
 	switch momentType {
 	case "hidden":
-		err = a.getHiddenMoment(r)
+		err = a.getHiddenMoment(w, r)
 	case "lost":
-		err = a.getLostMoment(r)
-	case "shared":
-		err = a.getSharedMoment(r)
+		err = a.getLostMoment(w, r)
+	case "sharedbyuser":
+		err = a.getSharedMomentbyUser(w, r)
+	case "sharedbylocation":
+		err = a.getSharedMomentbyLocation(w, r)
 	case "found":
-		err = a.getFoundMoment(r)
+		err = a.getFoundMoment(w, r)
 	case "left":
-		err = a.getLeftMoment(r)
+		err = a.getLeftMoment(w, r)
 	case "public":
-		err = a.getPublicMoment(r)
+		err = a.getPublicMoment(w, r)
 	default:
 		log.Println(ErrorBadRequest)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		genErrorHander(w, err)
+		genErrorHandler(w, err)
 		return
 	}
 }
@@ -114,6 +112,7 @@ func (a *app) momentPatchHandler(w http.ResponseWriter, r *http.Request) {
 		err = a.shareMoment(r)
 	default:
 		log.Println(ErrorBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
 	if err != nil {
 		genErrorHandler(w, err)
@@ -122,7 +121,7 @@ func (a *app) momentPatchHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *app) postPrivateMoment(w http.ResponseWriter, r *http.Request) error {
+func (a *app) postPrivateMoment(r *http.Request) error {
 	type medium struct {
 		message string
 		mtype   uint8
@@ -146,28 +145,28 @@ func (a *app) postPrivateMoment(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	l := a.c.NewLocation(b.latitude, b.longitude)
-	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, b.createDate)
+	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, &b.createDate)
 
 	var ms []*moment.MediaRow
 	for _, md := range b.media {
-		ms := append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+		ms = append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
 	}
 
 	var fs []*moment.FindsRow
 	for _, r := range b.recipients {
-		fs := append(rs, a.c.NewFindsRow(0, r.userID, false, &time.Time{}))
+		fs = append(fs, a.c.NewFindsRow(0, r.userID, false, &time.Time{}))
 	}
 	if err := a.c.Err(); err != nil {
 		return err
 	}
 
-	if err := a.c.CreatePrivate(a.c.MomentDB(), m, ms, fs); err != nil {
+	if err := a.c.CreatePrivate(moment.DB(), m, ms, fs); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *app) postPublicMoment(w http.ResponseWriter, r *http.Request) error {
+func (a *app) postPublicMoment(r *http.Request) error {
 	type medium struct {
 		message string
 		mtype   uint8
@@ -179,7 +178,6 @@ func (a *app) postPublicMoment(w http.ResponseWriter, r *http.Request) error {
 		public     bool
 		hidden     bool
 		createDate time.Time
-		recipients []recipient
 		media      []medium
 	}
 	b := new(body)
@@ -188,23 +186,23 @@ func (a *app) postPublicMoment(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	l := a.c.NewLocation(b.latitude, b.longitude)
-	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, b.createDate)
+	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, &b.createDate)
 
 	var ms []*moment.MediaRow
 	for _, md := range b.media {
-		ms := append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+		ms = append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
 	}
 	if err := a.c.Err(); err != nil {
 		return err
 	}
 
-	if err := a.c.CreatePublic(a.c.MomentDB(), m, ms); err != nil {
+	if err := a.c.CreatePublic(moment.DB(), m, ms); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *app) getHiddenMoment(r *http.Request) error {
+func (a *app) getHiddenMoment(w http.ResponseWriter, r *http.Request) error {
 	type body struct {
 		latitude  float32
 		longitude float32
@@ -219,116 +217,7 @@ func (a *app) getHiddenMoment(r *http.Request) error {
 		return err
 	}
 
-	moments, err := a.c.LocationHidden(a.c.MomentDB(), l)
-	if err != nil {
-		return err
-	}
-
-	if err = json.NewEncoder(w).Encode(moments); err != nil {
-		return err
-	}
-}
-
-func (a *app) getLostMoment(r *http.Request) error {
-	type body struct {
-		latitude  float32
-		longitude float32
-		me        string
-	}
-	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
-		return err
-	}
-
-	l := a.c.NewLocation(b.latitude, b.longitude)
-	if err := a.c.Err(); err != nil {
-		return err
-	}
-
-	moments, err := a.c.LocationLost(moment.MomentDB(), l)
-	if err != nil {
-		return err
-	}
-
-	if err = json.NewEncoder(w).Encode(moments); err != nil {
-		return err
-	}
-}
-
-func (a *app) getSharedMomentbyLocation(r *http.Request) error {
-	type body struct {
-		latitude  float32
-		longitude float32
-	}
-	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
-		return err
-	}
-
-	l := a.c.NewLocation(b.latitude, b.longitude)
-	if err := a.c.Err(); err != nil {
-		return err
-	}
-
-	moments, err := a.c.LocationShared(moment.MomentDB(), l)
-	if err != nil {
-		return err
-	}
-
-	if err = json.NewEncoder(w).Encode(moments); err != nil {
-		return err
-	}
-}
-
-func (a *app) getSharedMomentbyUser(r *http.Request) error {
-	type body struct {
-		you string
-		me  string
-	}
-	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
-		return err
-	}
-
-	moments, err := a.c.UserShared(moment.MomentDB(), b.you, b.me)
-	if err != nil {
-		return err
-	}
-
-	if err = json.NewEncoder(w).Encode(moments); err != nil {
-		return err
-	}
-}
-
-func (a *app) getFoundMoment(r *http.Request) {
-	type body struct {
-		me string
-	}
-	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
-		return err
-	}
-
-	moments, err := a.c.UserFound(moment.MomentDB(), me)
-	if err != nil {
-		return err
-	}
-
-	if err = json.NewEncoder(w).Encode(moments); err != nil {
-		return err
-	}
-}
-
-func (a *app) getLeftMoment(r *http.Request) error {
-	type body struct {
-		me string
-	}
-	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
-		return err
-	}
-
-	moments, err := a.c.UserLeft(moment.MomentDB(), me)
+	moments, err := a.c.LocationHidden(moment.DB(), l)
 	if err != nil {
 		return err
 	}
@@ -339,13 +228,14 @@ func (a *app) getLeftMoment(r *http.Request) error {
 	return nil
 }
 
-func (a *app) getPublicMoment(r *http.Request) error {
+func (a *app) getLostMoment(w http.ResponseWriter, r *http.Request) error {
 	type body struct {
 		latitude  float32
 		longitude float32
+		me        string
 	}
 	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
@@ -354,7 +244,121 @@ func (a *app) getPublicMoment(r *http.Request) error {
 		return err
 	}
 
-	moments, err := a.c.LocationPublic(moment.MomentDB(), l)
+	moments, err := a.c.LocationLost(moment.DB(), l, b.me)
+	if err != nil {
+		return err
+	}
+
+	if err = json.NewEncoder(w).Encode(moments); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) getSharedMomentbyLocation(w http.ResponseWriter, r *http.Request) error {
+	type body struct {
+		latitude  float32
+		longitude float32
+		me        string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	l := a.c.NewLocation(b.latitude, b.longitude)
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	moments, err := a.c.LocationShared(moment.DB(), l, b.me)
+	if err != nil {
+		return err
+	}
+
+	if err = json.NewEncoder(w).Encode(moments); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) getSharedMomentbyUser(w http.ResponseWriter, r *http.Request) error {
+	type body struct {
+		you string
+		me  string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	moments, err := a.c.UserShared(moment.DB(), b.you, b.me)
+	if err != nil {
+		return err
+	}
+
+	if err = json.NewEncoder(w).Encode(moments); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) getFoundMoment(w http.ResponseWriter, r *http.Request) error {
+	type body struct {
+		me string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	moments, err := a.c.UserFound(moment.DB(), b.me)
+	if err != nil {
+		return err
+	}
+
+	if err = json.NewEncoder(w).Encode(moments); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) getLeftMoment(w http.ResponseWriter, r *http.Request) error {
+	type body struct {
+		me string
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	moments, err := a.c.UserLeft(moment.DB(), b.me)
+	if err != nil {
+		return err
+	}
+
+	if err = json.NewEncoder(w).Encode(moments); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *app) getPublicMoment(w http.ResponseWriter, r *http.Request) error {
+	type body struct {
+		latitude  float32
+		longitude float32
+	}
+	b := new(body)
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
+		return err
+	}
+
+	l := a.c.NewLocation(b.latitude, b.longitude)
+	if err := a.c.Err(); err != nil {
+		return err
+	}
+
+	moments, err := a.c.LocationPublic(moment.DB(), l)
 	if err != nil {
 		return err
 	}
@@ -371,7 +375,7 @@ func (a *app) findPrivateMoment(r *http.Request) error {
 		me       string
 	}
 	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
@@ -381,7 +385,7 @@ func (a *app) findPrivateMoment(r *http.Request) error {
 		return err
 	}
 
-	if err := a.c.FindPrivate(moment.MomentDB(), f); err != nil {
+	if err := a.c.FindPrivate(moment.DB(), f); err != nil {
 		return err
 	}
 	return nil
@@ -393,7 +397,7 @@ func (a *app) findPublicMoment(r *http.Request) error {
 		me       string
 	}
 	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
@@ -403,14 +407,14 @@ func (a *app) findPublicMoment(r *http.Request) error {
 		return err
 	}
 
-	_, err := a.c.FindPublic(moment.MomentDB(), f)
+	_, err := a.c.FindPublic(moment.DB(), f)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *app) shareMoment(r *http.Request) {
+func (a *app) shareMoment(r *http.Request) error {
 	type recipient struct {
 		all       bool
 		recipient string
@@ -421,20 +425,20 @@ func (a *app) shareMoment(r *http.Request) {
 		recipients []recipient
 	}
 	b := new(body)
-	if err := json.NewDecoder(r.body).Decode(b); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
 	s := a.c.NewSharesRow(0, b.momentID, b.userID)
 	var rs []*moment.RecipientsRow
-	for _, r := range s.recipients {
-		rs = append(rs, a.c.NewSharesRow(0, r.all, r.recipient))
+	for _, r := range b.recipients {
+		rs = append(rs, a.c.NewRecipientsRow(0, r.all, r.recipient))
 	}
 	if err := a.c.Err(); err != nil {
 		return err
 	}
 
-	err := a.c.Share(moment.MomentDB(), s, rs)
+	err := a.c.Share(moment.DB(), s, rs)
 	if err != nil {
 		return err
 	}

@@ -77,7 +77,7 @@ var (
 )
 
 // MomentDB creates *db.Sql instance.
-func MomentDB() *sql.DB {
+func DB() *sql.DB {
 	db, err := sql.Open(driver, connStr)
 	if err != nil {
 		panic(err)
@@ -101,6 +101,26 @@ type MomentClient struct {
 
 func (mc *MomentClient) Err() error {
 	return mc.err
+}
+
+type Finder interface {
+	FindPublic(DbRunner, *FindsRow) (int64, error)
+	FindPrivate(DbRunner, *FindsRow) error
+}
+
+type Sharer interface {
+	Share(DbRunnerTrans, *SharesRow, []*RecipientsRow) error
+}
+
+type Creater interface {
+	CreatePublic(DbRunnerTrans, *MomentsRow, []*MediaRow) error
+	CreatePrivate(DbRunnerTrans, *MomentsRow, []*MediaRow, []*FindsRow) error
+}
+
+type Modifier interface {
+	Finder
+	Sharer
+	Creater
 }
 
 // FindPublic inserts a FindsRow into the [Moment-Db].[moment].[Finds] table with Found=true.
@@ -358,6 +378,15 @@ func update(db DbRunner, i interface{}) (err error) {
 		Error.Println(err)
 	}
 	return
+}
+
+type Newer interface {
+	NewMomentsRow(*Location, string, bool, bool, *time.Time) *MomentsRow
+	NewLocation(float32, float32) *Location
+	NewMediaRow(int64, string, uint8, string) *MediaRow
+	NewFindsRow(int64, string, bool, *time.Time) *FindsRow
+	NewSharesRow(int64, int64, string) *SharesRow
+	NewRecipientsRow(int64, bool, string) *RecipientsRow
 }
 
 // NewMoment is a constructor for the MomentsRow struct.
@@ -1019,6 +1048,9 @@ func (m Moment) String() string {
 type Client interface {
 	LocationSelector
 	UserSelector
+	Modifier
+	Newer
+	Err() error
 }
 
 type LocationSelector interface {

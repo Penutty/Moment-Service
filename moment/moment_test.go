@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestMomentDB(t *testing.T) {
-	db := MomentDB()
+	db := DB()
 	assert.IsType(t, new(sql.DB), db)
 }
 
