@@ -123,38 +123,38 @@ func (a *app) momentPatchHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) postPrivateMoment(r *http.Request) error {
 	type medium struct {
-		message string
-		mtype   uint8
+		Message string
+		Mtype   uint8
 	}
 	type recipient struct {
-		userID string
+		UserID string
 	}
 	type body struct {
-		latitude   float32
-		longitude  float32
-		userID     string
-		public     bool
-		hidden     bool
-		createDate time.Time
-		recipients []recipient
-		media      []medium
+		Latitude   float32
+		Longitude  float32
+		UserID     string
+		Public     bool
+		Hidden     bool
+		CreateDate time.Time
+		Recipients []recipient
+		Media      []medium
 	}
 	b := new(body)
 	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
-	l := a.c.NewLocation(b.latitude, b.longitude)
-	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, &b.createDate)
+	l := a.c.NewLocation(b.Latitude, b.Longitude)
+	m := a.c.NewMomentsRow(l, b.UserID, b.Public, b.Hidden, &b.CreateDate)
 
 	var ms []*moment.MediaRow
-	for _, md := range b.media {
-		ms = append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+	for _, md := range b.Media {
+		ms = append(ms, a.c.NewMediaRow(0, md.Message, md.Mtype, ""))
 	}
 
 	var fs []*moment.FindsRow
-	for _, r := range b.recipients {
-		fs = append(fs, a.c.NewFindsRow(0, r.userID, false, &time.Time{}))
+	for _, r := range b.Recipients {
+		fs = append(fs, a.c.NewFindsRow(0, r.UserID, false, &time.Time{}))
 	}
 	if err := a.c.Err(); err != nil {
 		return err
@@ -168,29 +168,29 @@ func (a *app) postPrivateMoment(r *http.Request) error {
 
 func (a *app) postPublicMoment(r *http.Request) error {
 	type medium struct {
-		message string
-		mtype   uint8
+		Message string
+		Mtype   uint8
 	}
 	type body struct {
-		latitude   float32
-		longitude  float32
-		userID     string
-		public     bool
-		hidden     bool
-		createDate time.Time
-		media      []medium
+		Latitude   float32
+		Longitude  float32
+		UserID     string
+		Public     bool
+		Hidden     bool
+		CreateDate time.Time
+		Media      []medium
 	}
 	b := new(body)
 	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
 		return err
 	}
 
-	l := a.c.NewLocation(b.latitude, b.longitude)
-	m := a.c.NewMomentsRow(l, b.userID, b.public, b.hidden, &b.createDate)
+	l := a.c.NewLocation(b.Latitude, b.Longitude)
+	m := a.c.NewMomentsRow(l, b.UserID, b.Public, b.Hidden, &b.CreateDate)
 
 	var ms []*moment.MediaRow
-	for _, md := range b.media {
-		ms = append(ms, a.c.NewMediaRow(0, md.message, md.mtype, ""))
+	for _, md := range b.Media {
+		ms = append(ms, a.c.NewMediaRow(0, md.Message, md.Mtype, ""))
 	}
 	if err := a.c.Err(); err != nil {
 		return err
