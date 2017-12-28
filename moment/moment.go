@@ -54,7 +54,7 @@ var (
 
 func init() {
 	Logger := func(logType string) *log.Logger {
-		file := "/home/tjp/go/log/moment.txt"
+		file := "/home/james/go/log/moment.txt"
 		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			panic(err)

@@ -351,8 +351,8 @@ var (
 )
 
 func TestFindPublic(t *testing.T) {
-
 	t.Run("Parameter Checks", func(t *testing.T) {
+
 		db, _, err := sqlmock.New()
 		assert.Nil(t, err)
 

@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/penutty/momentservice/moment"
+	"github.com/penutty/Moment-Service/moment"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -54,36 +54,19 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-type reqFull struct {
-	reqSemi
-	Recipients []recipient
-}
-
-func NewReqFull(lat float32, long float32
-
-type reqSemi struct {
-	Latitude   float32
-	Longitude  float32
-	UserID     string
-	Public     bool
-	Hidden     bool
-	CreateDate time.Time
-	Media      []medium
-}
-
-type reqLoc struct {
-	Latitude  float32
-	Longitude float32
-}
-
-type reqLocUser struct {
-	reqLoc
-	userID string
-}
-
 func Test_postPrivateMoment(t *testing.T) {
+	type body struct {
+		Latitude   float32
+		Longitude  float32
+		UserID     string
+		Public     bool
+		Hidden     bool
+		CreateDate time.Time
+		Media      []medium
+		Recipients []recipient
+	}
 	type test struct {
-		b        reqFull
+		b        body
 		expected error
 	}
 	tests := []test{
@@ -93,7 +76,6 @@ func Test_postPrivateMoment(t *testing.T) {
 	for _, v := range tests {
 		j, err := json.Marshal(v.b)
 		assert.Nil(t, err)
-
 		req := httptest.NewRequest(http.MethodPost, MomentEndpoint, bytes.NewReader(j))
 
 		a := MockApp()
@@ -103,8 +85,17 @@ func Test_postPrivateMoment(t *testing.T) {
 }
 
 func Test_postPublicMoment(t *testing.T) {
+	type body struct {
+		Latitude   float32
+		Longitude  float32
+		UserID     string
+		Public     bool
+		Hidden     bool
+		CreateDate time.Time
+		Media      []medium
+	}
 	type test struct {
-		b        reqSemi
+		b        body
 		expected error
 	}
 	tests := []test{
@@ -114,7 +105,6 @@ func Test_postPublicMoment(t *testing.T) {
 	for _, v := range tests {
 		j, err := json.Marshal(v.b)
 		assert.Nil(t, err)
-
 		req := httptest.NewRequest(http.MethodPost, MomentEndpoint, bytes.NewReader(j))
 
 		a := MockApp()
@@ -124,19 +114,22 @@ func Test_postPublicMoment(t *testing.T) {
 }
 
 func Test_getHiddenMoment(t *testing.T) {
+	type body struct {
+		Latitude  float32
+		Longitude float32
+	}
 	type test struct {
-		req      reqLoc
+		req      body
 		expected error
 	}
 	tests := []test{
-		test{reqbody{tLat, tLong}, nil},
+		test{body{tLat, tLong}, nil},
 	}
 
 	for _, v := range tests {
 		reqJson, err := json.Marshal(v.req)
 		assert.Nil(t, err)
 		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
-
 		rec := httptest.NewRecorder()
 
 		a := MockApp()
@@ -146,20 +139,25 @@ func Test_getHiddenMoment(t *testing.T) {
 }
 
 func Test_getLostMoment(t *testing.T) {
+	type body struct {
+		Latitude  float32
+		Longitude float32
+		UserID    string
+	}
 	type test struct {
-		req      reqLocUser
+		req      body
 		expected error
 	}
 	tests := []test{
-		test{reqbody{tLat, tLong, tUser}, nil},
+		test{body{tLat, tLong, tUser}, nil},
 	}
 	for _, v := range tests {
 		reqJson, err := json.Marshal(v.req)
 		assert.Nil(t, err)
 		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+		assert.Nil(t, err)
 
 		rec := httptest.NewRecorder()
-
 		a := MockApp()
 		err = a.getLostMoment(rec, req)
 		assert.Exactly(t, v.expected, err)
@@ -167,9 +165,209 @@ func Test_getLostMoment(t *testing.T) {
 }
 
 func Test_getSharedMomentbyLocation(t *testing.T) {
-	type reqbody struct {
-		Latitude float32
-		Longitude
+	type body struct {
+		Latitude  float32
+		Longitude float32
+		UserID    string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tLat, tLong, tUser}, nil},
+	}
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+		assert.Nil(t, err)
+
+		rec := httptest.NewRecorder()
+		a := MockApp()
+		err = a.getSharedMomentbyLocation(rec, req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_getSharedMomentbyUser(t *testing.T) {
+	type body struct {
+		You string
+		Me  string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tUser, tUser1}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+		assert.Nil(t, err)
+
+		rec := httptest.NewRecorder()
+		a := MockApp()
+		err = a.getSharedMomentbyUser(rec, req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_getFoundMoment(t *testing.T) {
+	type body struct {
+		Me string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tUser}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+		assert.Nil(t, err)
+
+		rec := httptest.NewRecorder()
+		a := MockApp()
+		err = a.getFoundMoment(rec, req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_getLeftMoment(t *testing.T) {
+	type body struct {
+		Me string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tUser}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+
+		rec := httptest.NewRecorder()
+		a := MockApp()
+		err = a.getLeftMoment(rec, req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_getPublicMoment(t *testing.T) {
+	type body struct {
+		Latitude  float32
+		Longitude float32
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tLat, tLong}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+
+		rec := httptest.NewRecorder()
+		a := MockApp()
+		err = a.getLeftMoment(rec, req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_findPrivateMoment(t *testing.T) {
+	type body struct {
+		MomentID int64
+		Me       string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tMomentID, tUser}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+
+		a := MockApp()
+		err = a.findPrivateMoment(req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func Test_findPublicMoment(t *testing.T) {
+	type body struct {
+		MomentID int64
+		Me       string
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{tMomentID, tUser}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+
+		a := MockApp()
+		err = a.findPublicMoment(req)
+		assert.Exactly(t, v.expected, err)
+	}
+}
+
+func test_shareMoment(t *testing.T) {
+	type recipient struct {
+		All       bool
+		Recipient string
+	}
+	type body struct {
+		MomentID   int64
+		UserID     string
+		Recipients []recipient
+	}
+	type test struct {
+		req      body
+		expected error
+	}
+	tests := []test{
+		test{body{
+			tMomentID,
+			tUser,
+			[]recipient{recipient{false, tUser1}, recipient{false, tUser2}},
+		}, nil},
+	}
+
+	for _, v := range tests {
+		reqJson, err := json.Marshal(v.req)
+		assert.Nil(t, err)
+		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
+
+		a := MockApp()
+		err = a.shareMoment(req)
+		assert.Exactly(t, v.expected, err)
 	}
 }
 
