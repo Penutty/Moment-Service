@@ -42,7 +42,6 @@ var (
 type recipient struct {
 	UserID string
 }
-
 type medium struct {
 	Message string
 	Mtype   uint8
@@ -52,6 +51,28 @@ func TestMain(m *testing.M) {
 	// Create http.Client or http.Transport if necessary
 
 	os.Exit(m.Run())
+}
+
+func Test_momentHandler(t *testing.T) {
+	type test struct {
+		method         string
+		expectedStatus int
+	}
+	tests := []test{
+		test{http.MethodGet, http.StatusBadRequest},
+		test{http.MethodPost, http.StatusBadRequest},
+		test{http.MethodPatch, http.StatusBadRequest},
+		test{http.MethodDelete, http.StatusNotImplemented},
+	}
+
+	for _, v := range tests {
+		req := httptest.NewRequest(v.method, MomentEndpoint, nil)
+		rec := httptest.NewRecorder()
+
+		a := MockApp()
+		a.momentHandler(rec, req)
+		assert.Exactly(t, v.expectedStatus, rec.Code)
+	}
 }
 
 func Test_postPrivateMoment(t *testing.T) {
@@ -285,7 +306,7 @@ func Test_getPublicMoment(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		a := MockApp()
-		err = a.getLeftMoment(rec, req)
+		err = a.getPublicMoment(rec, req)
 		assert.Exactly(t, v.expected, err)
 	}
 }
@@ -338,7 +359,7 @@ func Test_findPublicMoment(t *testing.T) {
 	}
 }
 
-func test_shareMoment(t *testing.T) {
+func Test_shareMoment(t *testing.T) {
 	type recipient struct {
 		All       bool
 		Recipient string
@@ -365,6 +386,7 @@ func test_shareMoment(t *testing.T) {
 		assert.Nil(t, err)
 		req := httptest.NewRequest(http.MethodGet, MomentEndpoint, bytes.NewReader(reqJson))
 
+		t.Logf("%s\n", v)
 		a := MockApp()
 		err = a.shareMoment(req)
 		assert.Exactly(t, v.expected, err)
